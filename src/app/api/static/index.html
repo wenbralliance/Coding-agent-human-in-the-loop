@@ -4,67 +4,133 @@
 <meta charset="UTF-8">
 <title>Coding Agent</title>
 <style>
-    /* 基础样式保留，新增侧边栏和弹窗样式 */
     :root {
-        --bg: #1e1e1e; --sidebar: #252526; --text: #d4d4d4;
-        --user: #007acc; --agent: #2d2d2d; --tool: #4ec9b0;
-        --border: #333; --danger: #f87171;
+        --bg: #ffffff; --sidebar: #f7f7f8; --border: #e5e5e5;
+        --text: #111111; --muted: #888888; --hover: #ececec; --accent: #000000;
     }
-    body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; display: flex; height: 100vh; width: 100vw;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg); color: var(--text); overflow: hidden;
+    }
 
-    /* 侧边栏 */
-    #sidebar { width: 240px; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-    .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); font-weight: bold; }
-    .sidebar-item { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--border); font-size: 14px; }
-    .sidebar-item:hover { background: #333; }
-    .sidebar-footer { margin-top: auto; padding: 16px; border-top: 1px solid var(--border); cursor: pointer; color: #aaa; }
-    .sidebar-footer:hover { color: white; }
+    /* 左侧栏 */
+    #sidebar {
+        width: 260px; background: var(--sidebar); border-right: 1px solid var(--border);
+        display: flex; flex-direction: column; padding: 12px;
+    }
+    .btn-new {
+        background: #fff; border: 1px solid var(--border); border-radius: 6px;
+        padding: 10px 12px; font-size: 14px; font-weight: 500; cursor: pointer;
+        display: flex; align-items: center; gap: 8px; transition: 0.2s;
+    }
+    .btn-new:hover { background: var(--hover); }
 
-    /* 主聊天区 */
-    #main { flex: 1; display: flex; flex-direction: column; }
-    #chat-container { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
-    .msg { max-width: 85%; line-height: 1.6; padding: 12px 16px; border-radius: 8px; white-space: pre-wrap; }
-    .msg.user { align-self: flex-end; background: var(--user); color: white; }
-    .msg.agent { align-self: flex-start; background: var(--agent); border: 1px solid var(--border); }
-    .msg.error { background: rgba(248, 113, 113, 0.1); border-color: var(--danger); color: var(--danger); }
-    .tool-status { align-self: flex-start; font-size: 13px; color: var(--tool); background: rgba(78,201,176,0.1); padding: 8px 12px; border-left: 3px solid var(--tool); display: flex; gap: 8px; align-items: center; }
-    .spinner { width: 12px; height: 12px; border: 2px solid var(--tool); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
+    .sidebar-section {
+        font-size: 12px; font-weight: 600; color: var(--muted);
+        margin: 20px 12px 8px; text-transform: uppercase;
+    }
+    .workspace-info {
+        padding: 10px 12px; font-size: 13px; color: #333;
+        word-break: break-all; background: #fff; border: 1px solid var(--border);
+        border-radius: 6px; margin-bottom: auto; /* 推到底部 */
+    }
+
+    .sidebar-footer {
+        padding: 12px; font-size: 14px; cursor: pointer; border-radius: 6px;
+        display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 500;
+    }
+    .sidebar-footer:hover { background: var(--hover); }
+
+    /* 右侧主区 */
+    #main {
+        flex: 1; display: flex; flex-direction: column; position: relative;
+    }
+    #chat-container {
+        flex: 1; overflow-y: auto; padding: 40px 20px; display: flex;
+        flex-direction: column; gap: 24px; max-width: 800px; margin: 0 auto; width: 100%;
+    }
+
+    /* 空状态 */
+    #empty-state {
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; height: 100%; font-size: 22px; font-weight: 500;
+        pointer-events: none;
+    }
+
+    /* 消息 */
+    .msg { display: flex; gap: 16px; width: 100%; }
+    .msg-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+    .msg.user .msg-avatar { background: #000; color: #fff; }
+    .msg.agent .msg-avatar { background: #e5e5e5; color: #000; }
+    .msg-content { font-size: 15px; line-height: 1.6; color: #222; white-space: pre-wrap; word-break: break-word; padding-top: 4px;}
+    .msg.error .msg-content { color: #d93025; }
+
+    /* 工具执行 */
+    .tool-status {
+        display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+        font-family: monospace; color: #0066cc; background: #f0f7ff;
+        padding: 6px 12px; border-radius: 6px; margin-bottom: 8px;
+    }
+    .spinner { width: 12px; height: 12px; border: 2px solid #0066cc; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* 输入区 */
-    #input-area { padding: 20px; border-top: 1px solid var(--border); background: var(--sidebar); }
-    .input-wrapper { display: flex; background: #3c3c3c; border-radius: 8px; border: 1px solid #555; }
-    textarea { flex: 1; background: transparent; border: none; color: white; padding: 12px; outline: none; resize: none; height: 24px; }
-    button { background: var(--user); color: white; border: none; padding: 0 20px; cursor: pointer; font-weight: bold; }
+    /* 底部输入区 */
+    #input-container { padding: 20px; max-width: 800px; margin: 0 auto; width: 100%; }
+    .input-box {
+        background: #fff; border: 1px solid var(--border); border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.05); display: flex; flex-direction: column; overflow: hidden;
+    }
+    .input-box:focus-within { border-color: var(--accent); }
+    textarea {
+        width: 100%; border: none; outline: none; resize: none; padding: 16px;
+        font-size: 15px; font-family: inherit; min-height: 60px;
+    }
+    .input-footer { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #fafafa; border-top: 1px solid var(--border);}
+    .btn-send { width: 32px; height: 32px; border-radius: 50%; background: #ccc; color: #fff; border: none; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+    .btn-send.active { background: var(--accent); cursor: pointer; }
 
     /* 弹窗 */
-    #modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; }
-    .modal { background: var(--sidebar); border: 1px solid var(--border); border-radius: 8px; width: 400px; padding: 20px; }
-    .modal h3 { margin-top: 0; }
-    .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; margin-bottom: 6px; font-size: 13px; color: #aaa; }
-    .form-group input { width: 100%; padding: 8px; background: #1e1e1e; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-    .btn-secondary { background: #444; }
+    #modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); justify-content: center; align-items: center; z-index: 100; }
+    .modal { background: #fff; border-radius: 12px; width: 400px; padding: 24px; }
+    .form-group { margin-bottom: 16px; margin-top: 16px;}
+    .form-group label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;}
+    .form-group input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; outline: none;}
+    .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+    .btn-secondary { background: #eee; color: #333; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;}
+    .btn-primary { background: #000; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;}
 </style>
 </head>
 <body>
     <!-- 侧边栏 -->
     <div id="sidebar">
-        <div class="sidebar-header">Coding Agent</div>
-        <div class="sidebar-item" style="color:#aaa; cursor:default">工作区: <span id="current-workspace">加载中...</span></div>
-        <div class="sidebar-footer" onclick="openSettings()">⚙️ 设置与配置</div>
+        <button class="btn-new" onclick="newChat()">+ New Chat</button>
+
+        <div class="sidebar-section">Current Workspace</div>
+        <div class="workspace-info" id="current-workspace">加载中...</div>
+
+        <div class="sidebar-footer" onclick="openSettings()">
+            ⚙️ Settings
+        </div>
     </div>
 
     <!-- 主区 -->
     <div id="main">
         <div id="chat-container">
-            <div class="msg agent">你好！我是你的 Coding Agent。请先在左下角“设置”中配置 API Key 和工作区。</div>
+            <div id="empty-state">
+                <div style="font-size: 40px; margin-bottom: 16px;">✧</div>
+                What should we build today?
+            </div>
         </div>
-        <div id="input-area">
-            <div class="input-wrapper">
-                <textarea id="user-input" placeholder="输入任务 (Enter 发送)..." rows="1"></textarea>
-                <button id="send-btn" onclick="sendMessage()">发送</button>
+
+        <div id="input-container">
+            <div class="input-box">
+                <textarea id="user-input" placeholder="Do anything..."></textarea>
+                <div class="input-footer">
+                    <span style="font-size:13px; color:#666;">🤖 Coding Agent</span>
+                    <button id="send-btn" class="btn-send" onclick="sendMessage()">↑</button>
+                </div>
             </div>
         </div>
     </div>
@@ -72,7 +138,7 @@
     <!-- 设置弹窗 -->
     <div id="modal-overlay">
         <div class="modal">
-            <h3>⚙️ 系统配置</h3>
+            <h3 style="margin:0;">⚙️ Settings</h3>
             <div class="form-group">
                 <label>LLM API Key (DeepSeek)</label>
                 <input type="password" id="set-llm-key" placeholder="sk-...">
@@ -82,39 +148,72 @@
                 <input type="password" id="set-emb-key" placeholder="sk-...">
             </div>
             <div class="form-group">
-                <label>工作区目录 (Workspace)</label>
-                <input type="text" id="set-workspace" placeholder="workspace 或绝对路径">
+                <label>Workspace Path</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="set-workspace" placeholder="绝对路径" style="flex: 1;">
+                    <button onclick="selectWorkspaceNative()" style="padding: 0 12px; border-radius: 6px; border:1px solid #ccc; cursor:pointer;">浏览</button>
+                </div>
             </div>
             <div class="modal-actions">
-                <button class="btn-secondary" onclick="closeSettings()">取消</button>
-                <button onclick="saveSettings()">保存并重启</button>
+                <button class="btn-secondary" onclick="closeSettings()">Cancel</button>
+                <button class="btn-primary" onclick="saveSettings()">Save</button>
             </div>
         </div>
     </div>
 
     <script>
         const chatContainer = document.getElementById('chat-container');
-        let sessionId = localStorage.getItem('session_id') || "s_" + Math.random().toString(36).slice(2, 10);
+        const inputEl = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const emptyState = document.getElementById('empty-state');
 
-        // 初始化：加载配置
+        let sessionId = "s_" + Math.random().toString(36).slice(2, 10);
+
+        // 新建对话
+        function newChat() {
+            sessionId = "s_" + Math.random().toString(36).slice(2, 10);
+            chatContainer.innerHTML = `
+                <div id="empty-state">
+                    <div style="font-size: 40px; margin-bottom: 16px;">✧</div>
+                    What should we build today?
+                </div>`;
+            // 重新绑定 emptyState，因为 DOM 被覆盖了
+            window.emptyState = document.getElementById('empty-state');
+        }
+
+        inputEl.addEventListener('input', () => {
+            inputEl.style.height = 'auto';
+            inputEl.style.height = (inputEl.scrollHeight) + 'px';
+            sendBtn.classList.toggle('active', !!inputEl.value.trim());
+        });
+
+        // 加载配置
         async function loadSettings() {
             try {
                 const res = await fetch('/api/settings');
                 const data = await res.json();
-                document.getElementById('current-workspace').textContent = data.WORKSPACE_PATH || '未设置';
-                // 为了安全，只回显蒙版后的 Key
+                if(data.WORKSPACE_PATH) {
+                    document.getElementById('current-workspace').textContent = data.WORKSPACE_PATH;
+                } else {
+                    document.getElementById('current-workspace').textContent = "未配置（点击下方设置）";
+                }
                 if (data.LLM_API_KEY) document.getElementById('set-llm-key').placeholder = data.LLM_API_KEY;
                 if (data.EMBEDDING_API_KEY) document.getElementById('set-emb-key').placeholder = data.EMBEDDING_API_KEY;
                 if (data.WORKSPACE_PATH) document.getElementById('set-workspace').value = data.WORKSPACE_PATH;
-            } catch (e) {
-                console.error('加载配置失败', e);
-            }
+            } catch (e) { console.error(e); }
         }
 
         function openSettings() { document.getElementById('modal-overlay').style.display = 'flex'; }
         function closeSettings() { document.getElementById('modal-overlay').style.display = 'none'; }
 
-        async function saveSettings() {
+        async function selectWorkspaceNative() {
+            if (window.electronAPI) {
+                const dir = await window.electronAPI.selectDirectory();
+                if (dir) document.getElementById('set-workspace').value = dir;
+            } else { alert('浏览器环境不支持原生弹窗。'); }
+        }
+
+                async function saveSettings() {
             const payload = {
                 llm_api_key: document.getElementById('set-llm-key').value || null,
                 embedding_api_key: document.getElementById('set-emb-key').value || null,
@@ -127,30 +226,32 @@
                     body: JSON.stringify(payload)
                 });
                 if (res.ok) {
-                    alert('保存成功！由于底层配置已更新，请手动重启后端服务生效。');
+                    alert('配置已保存，立即生效！'); // 👈 改掉重启提示
                     closeSettings();
                     loadSettings();
                 }
-            } catch (e) {
-                alert('保存失败: ' + e.message);
-            }
+            } catch (e) { alert('保存失败: ' + e.message); }
         }
 
-        // 聊天逻辑（略，和之前一样）
         async function sendMessage() {
-            const inputEl = document.getElementById('user-input');
             const text = inputEl.value.trim();
             if (!text) return;
-            inputEl.value = '';
+
+            inputEl.value = ''; inputEl.style.height = 'auto'; sendBtn.classList.remove('active');
+            const es = document.getElementById('empty-state');
+            if(es) es.style.display = 'none';
 
             const userDiv = document.createElement('div');
-            userDiv.className = 'msg user'; userDiv.textContent = text;
+            userDiv.className = 'msg user';
+            userDiv.innerHTML = `<div class="msg-avatar">U</div><div class="msg-content">${text}</div>`;
             chatContainer.appendChild(userDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
 
             const agentDiv = document.createElement('div');
-            agentDiv.className = 'msg agent'; agentDiv.textContent = '思考中...';
+            agentDiv.className = 'msg agent';
+            agentDiv.innerHTML = `<div class="msg-avatar">AI</div><div class="msg-content"></div>`;
             chatContainer.appendChild(agentDiv);
+            const contentDiv = agentDiv.querySelector('.msg-content');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
 
             try {
                 const response = await fetch('/api/chat', {
@@ -159,7 +260,6 @@
                     body: JSON.stringify({ session_id: sessionId, message: text })
                 });
 
-                agentDiv.textContent = ''; // 清空“思考中”
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
@@ -173,30 +273,31 @@
                     for (const line of lines) {
                         if (!line.startsWith('data: ')) continue;
                         const data = JSON.parse(line.slice(6));
+
                         if (data.type === 'text') {
-                            agentDiv.textContent += data.content;
+                            contentDiv.textContent += data.content;
                         } else if (data.type === 'tool_start') {
                             const toolDiv = document.createElement('div');
                             toolDiv.className = 'tool-status';
-                            toolDiv.innerHTML = `<div class="spinner"></div><span>执行工具: ${data.name}</span>`;
-                            chatContainer.insertBefore(toolDiv, agentDiv);
+                            toolDiv.innerHTML = `<div class="spinner"></div> 执行工具: ${data.name}...`;
+                            agentDiv.insertBefore(toolDiv, contentDiv);
                         } else if (data.type === 'error') {
-                            agentDiv.className = 'msg error';
-                            agentDiv.textContent += `[错误] ${data.content}`;
+                            agentDiv.className = 'msg agent error';
+                            contentDiv.textContent += `\n[错误] ${data.content}`;
                         }
                         chatContainer.scrollTop = chatContainer.scrollHeight;
                     }
                 }
             } catch (e) {
-                agentDiv.textContent = '请求失败: ' + e.message;
+                contentDiv.textContent = '请求失败: ' + e.message;
             }
         }
 
-        // 启动时加载
-        loadSettings();
-        document.getElementById('user-input').addEventListener('keydown', (e) => {
+        inputEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
         });
+
+        loadSettings();
     </script>
 </body>
 </html>

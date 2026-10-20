@@ -7,11 +7,13 @@ from langchain_core.messages import HumanMessage
 from app.graph.build import build_graph
 from app.memory.store import MemoryStore
 from app.api.schemas import ChatRequest
+from app.api.settings import router as settings_router
 
 app = FastAPI(title="Coding Agent Local Engine")
 graph = build_graph()
 store = MemoryStore()
 
+app.include_router(settings_router)
 app.mount("/static", StaticFiles(directory="src/app/api/static"), name="static")
 
 
@@ -32,23 +34,24 @@ async def chat_endpoint(req: ChatRequest):
 
     async def event_generator():
         try:
-            async for event in graph.astream_events(state, version="v1"):
-                kind = event["event"]
-                name = event["name"]
+            # 👇 同时监听 "updates" (节点结束) 和 "custom" (节点里的 writer 发出的事件)
+            async for mode, chunk in graph.astream(state, stream_mode=["updates", "custom"]):
 
-                # 1. 拦截 agent 节点通过 writer 吐出的流式文本
-                if kind == "on_chain_stream" and name == "agent":
-                    chunk = event["data"]["chunk"]
-                    # 检查是否是我们自定义的 StreamWriter 数据
-                    if isinstance(chunk, dict) and "type" in chunk:
+                # 1. 收到 agent 节点发来的文本
+                if mode == "custom":
+                    if isinstance(chunk, dict) and chunk.get("type") == "text":
                         yield f"data: {json.dumps(chunk)}\n\n"
 
-                # 2. 拦截工具执行状态
-                elif kind == "on_tool_start":
-                    yield f"data: {json.dumps({'type': 'tool_start', 'name': name})}\n\n"
-
-                elif kind == "on_tool_end":
-                    yield f"data: {json.dumps({'type': 'tool_end', 'name': name})}\n\n"
+                # 2. 收到工具执行结果
+                elif mode == "updates":
+                    for node_name, node_output in chunk.items():
+                        if not isinstance(node_output, dict):
+                            continue
+                        if node_name == "tools":
+                            for m in node_output.get("messages", []):
+                                if m.type == "tool":
+                                    # 通知前端：工具跑完了！
+                                    yield f"data: {json.dumps({'type': 'tool_end', 'content': m.content})}\n\n"
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
