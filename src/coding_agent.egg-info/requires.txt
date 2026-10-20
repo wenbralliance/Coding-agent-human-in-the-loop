@@ -1,0 +1,6 @@
+fastapi>=0.151.0
+langchain-deepseek>=1.1.1
+langgraph>=1.2.15
+pydantic-settings>=2.16.0
+sqlite-vec>=0.1.9
+uvicorn>=0.54.0

@@ -1,0 +1,107 @@
+Metadata-Version: 2.4
+Name: coding-agent
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.151.0
+Requires-Dist: langchain-deepseek>=1.1.1
+Requires-Dist: langgraph>=1.2.15
+Requires-Dist: pydantic-settings>=2.16.0
+Requires-Dist: sqlite-vec>=0.1.9
+Requires-Dist: uvicorn>=0.54.0
+
+# Coding Agent
+
+一个能自己写代码、运行、迭代的 AI 编程助手。基于 LangGraph 的 ReAct 主循环，支持工具调用、Human-in-the-Loop 审批、长期记忆与流式输出。
+
+> 个人全栈项目，未上线。
+
+---
+
+## 它做什么
+
+用户用自然语言描述需求，Agent 自己完成：
+
+1. **写代码** → 保存到 workspace
+2. **运行代码** → 子进程沙箱执行
+3. **看结果** → 报错就改，改完重跑
+4. **交付** → 运行通过后返回代码和结果
+
+**危险操作（运行代码）会触发人工审批**，用户批准后才执行。
+
+---
+
+## 核心能力
+
+### 1. ReAct 工具调用
+
+基于 LangGraph 的 ReAct 主循环：`agent → tools → agent`，LLM 每步看工具返回结果，决定下一步。
+
+**文件操作：**
+- `write_file` — 写整个文件到 workspace
+- `read_file` — 读文件内容
+- `edit_file` — 改文件的一部分（传旧内容和新内容，只替换匹配处）
+- `list_files` — 列目录结构
+- `grep_content` — 按内容搜文件，定位代码位置
+
+**代码操作：**
+- `run_file` — 子进程沙箱运行
+- `analyze_code` — AST 静态分析
+- `review_code` — LLM 代码审查
+
+### 2. Human-in-the-Loop 审批
+
+`run_file` 执行前 `interrupt()`，暂停图状态并持久化。用户通过 API 审批后 `resume` 继续。
+
+- 永久挂起：用户随时审批，任务不超时。
+- 状态持久化：进程重启后仍可恢复。
+
+### 3. 长期记忆
+
+跨会话记住用户的技术栈和编码偏好：
+
+- **preference**（偏好）：如"用户偏好 Python"
+- **fact**（事实）：如"用户在做 LangGraph 项目"
+- **event**（事件）：如"用户最近在调 checkpointer"
+
+每轮对话后异步提取，不阻塞主流程。冲突消解用 ADD/UPDATE/SUPERSEDE/NOOP，旧记忆标记失效而非删除。
+
+### 4. 流式输出
+
+FastAPI + SSE，实时推送生成内容。支持多会话并行管理。
+
+### 5. Token 追踪
+
+每次 LLM 调用记录 model、tokens、成本、延迟、节点名。支持按会话、用户、节点聚合。
+
+---
+
+## 技术栈
+
+| 组件 | 选型 | 为什么 |
+|---|---|---|
+| 编排 | LangGraph | ReAct 循环、HITL interrupt、状态管理 |
+| LLM | 可自选（DeepSeek / OpenAI / 通义 / 本地 Ollama） | 统一接口，通过配置切换 |
+| Embedding | 阿里 DashScope | text-embedding-v3，1024 维 |
+| 向量库 | sqlite-vec | 单文件，零运维 |
+| 结构化存储 | SQLite | 关系、事务、FTS5 全文索引 |
+| API | FastAPI + SSE | 异步、流式 |
+| 沙箱 | 子进程（可切 Docker） | 开发用子进程，生产切 Docker |
+| 部署 | Docker Compose | 一键启动 |
+
+---
+
+
+### 环境要求
+
+- Python 3.12+
+- 无 Docker（可选，用于沙箱）
+
+### 安装
+
+```bash
+git clone <repo>
+cd coding-agent
+uv venv
+uv pip install -e .
