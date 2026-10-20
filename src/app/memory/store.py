@@ -1,0 +1,73 @@
+import uuid
+import struct
+from app.db.connection import db_session
+from app.llm.embedding import embed_async
+
+
+def vec_to_bytes(vec: list[float]) -> bytes:
+    """
+    将浮点数列表转换为 sqlite-vec 能识别的二进制字节串。
+    sqlite-vec 要求向量以 float32 数组的二进制形式存入。
+    """
+    return struct.pack(f"{len(vec)}f", *vec)
+
+
+class MemoryStore:
+    def __init__(self):
+        pass
+
+    def create_session(self, title: str = "新对话") -> str:
+        """创建一个新会话，返回生成的 session_id。"""
+        session_id = f"s_{uuid.uuid4().hex[:8]}"
+        with db_session() as db:
+            db.execute(
+                "INSERT INTO sessions(id, title) VALUES (?, ?)",
+                (session_id, title)
+            )
+        return session_id
+
+    def add_message(self, session_id: str, role: str, content: str) -> str:
+        """
+        存入一条消息（L0 滑动窗口的原料）。
+        role: 'user' / 'assistant' / 'tool'
+        """
+        msg_id = f"m_{uuid.uuid4().hex[:8]}"
+        with db_session() as db:
+            db.execute(
+                "INSERT INTO messages(id, session_id, role, content) VALUES (?, ?, ?, ?)",
+                (msg_id, session_id, role, content)
+            )
+        return msg_id
+
+    async def add_memory(
+            self,
+            memory_type: str,
+            content: str,
+            importance: float = 0.5,
+            source_msg_id: str | None = None  # 👈 新增参数
+    ) -> str:
+        """
+        存长期记忆（自动向量化）。增加溯源信息。
+        """
+        memory_id = f"mem_{uuid.uuid4().hex[:8]}"
+
+        embedding = await embed_async(content)
+        vec_bytes = vec_to_bytes(embedding)
+
+        with db_session() as db:
+            db.execute(
+                "INSERT INTO memories(id, type, content, importance) VALUES (?, ?, ?, ?)",
+                (memory_id, memory_type, content, importance)
+            )
+            db.execute(
+                "INSERT INTO memory_vectors(memory_id, embedding) VALUES (?, ?)",
+                (memory_id, vec_bytes)
+            )
+            # 👇 新增溯源记录
+            if source_msg_id:
+                db.execute(
+                    "INSERT INTO memory_sources(memory_id, message_id) VALUES (?, ?)",
+                    (memory_id, source_msg_id)
+                )
+
+        return memory_id
