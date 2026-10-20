@@ -27,16 +27,21 @@ class MemoryStore:
         return session_id
 
     def add_message(self, session_id: str, role: str, content: str) -> str:
-        """
-        存入一条消息（L0 滑动窗口的原料）。
-        role: 'user' / 'assistant' / 'tool'
-        """
+        """存一条消息，返回 msg_id"""
         msg_id = f"m_{uuid.uuid4().hex[:8]}"
         with db_session() as db:
+            # 1. 插入消息
             db.execute(
                 "INSERT INTO messages(id, session_id, role, content) VALUES (?, ?, ?, ?)",
                 (msg_id, session_id, role, content)
             )
+
+            # 👇 2. 如果是用户发的消息，并且会话标题还是默认的，就把标题改成这句话
+            if role == "user":
+                db.execute(
+                    "UPDATE sessions SET title = ? WHERE id = ? AND title = '新对话'",
+                    (content[:20], session_id)  # 取前20个字符作为标题
+                )
         return msg_id
 
     async def add_memory(

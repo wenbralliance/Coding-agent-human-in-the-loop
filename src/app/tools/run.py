@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from app.tools.base import tool
 from app.config import settings
 from app.tools.file import get_workspace_dir
+from langgraph.types import interrupt  # 👈 引入中断工具
 
 
 class RunFileArgs(BaseModel):
@@ -20,6 +21,21 @@ def run_file(filename: str) -> str:
     if not target.exists():
         return f"错误：文件 {filename} 不存在。"
 
+    # 1. 读取要运行的代码
+    code_content = target.read_text(encoding="utf-8")
+
+    # 2. 🛑 核心：触发人工审批中断！
+    # 这里的字典数据会被传给前端，图会在这里暂停
+    approval_data = interrupt({
+        "filename": filename,
+        "code": code_content
+    })
+
+    # 3. 当图被恢复时，前端传来的审批结果会赋给 approval_data
+    if approval_data.get("action") != "approve":
+        return "用户拒绝了执行。"
+
+    # 4. 用户批准了，正式进入沙箱运行
     try:
         result = subprocess.run(
             [sys.executable, "-I", str(target)],

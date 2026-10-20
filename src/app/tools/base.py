@@ -1,8 +1,11 @@
 import asyncio
 import inspect
 import json
+
 from typing import Any, Callable, get_type_hints
 from pydantic import BaseModel
+
+from langgraph.errors import GraphInterrupt
 
 
 class Tool:
@@ -27,16 +30,15 @@ class Tool:
         }
 
     async def execute(self, arguments_json: str) -> str:
-        """执行工具，传入模型返回的 JSON 字符串参数"""
         try:
             args_dict = json.loads(arguments_json)
-            # 用 Pydantic 校验参数
             validated = self.args_schema(**args_dict)
-            # 判断是同步还是异步
             if inspect.iscoroutinefunction(self.func):
                 return await self.func(**validated.model_dump())
-            else:
-                return self.func(**validated.model_dump())
+            return self.func(**validated.model_dump())
+        except GraphInterrupt:
+            # 🛑 如果是人工审批中断，必须向上抛出，不能吞掉！
+            raise
         except Exception as e:
             return f"工具执行失败: {e}"
 
