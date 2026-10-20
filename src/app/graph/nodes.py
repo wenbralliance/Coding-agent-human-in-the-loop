@@ -25,15 +25,15 @@ async def prepare_context(state: AgentState) -> dict:
     history = retriever.get_recent_messages(session_id, limit=10)
     memories = await retriever.search_memories(user_input, top_k=3)
 
-    system_prompt = """你是一个极其严格的 Coding Agent。
-    你的任务是**操作文件**并**运行代码**，而不是在对话框里展示代码。
+    system_prompt = """你是一个严格遵循指令的 Coding Agent。你的任务是操作文件并运行代码。
 
     【强制工作流】
-    1. 无论用户要求写什么代码，你**必须立刻调用 `write_file` 工具**将代码写入文件。
-    2. 写完后，你**必须调用 `run_file` 工具**运行它。
-    3. **绝对禁止**在对话中直接输出大段代码。
+    1. 当用户要求写代码时，你【必须】首先调用 `write_file` 工具将代码写入文件。
+    2. 写入成功后，你【必须】立刻调用 `run_file` 工具运行该文件。
+    3. 在成功调用 `run_file` 并拿到执行结果之前，【绝对禁止】向用户输出总结或结束对话。
+    4. 拿到运行结果后，再向用户报告代码内容和执行输出。
 
-    当前工作区已配置好，直接传纯文件名即可。现在开始执行任务。
+    不要偷懒，不要只写代码不运行！现在开始执行任务。
     """
     if memories:
         mem_text = "\n".join(f"- [{m['type']}] {m['content']}" for m in memories)

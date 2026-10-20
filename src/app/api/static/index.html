@@ -334,14 +334,10 @@
                         agentDiv.insertBefore(toolDiv, contentDiv);
                         contentDiv.textContent = '继续思考中...';
                     } else if (data.type === 'interrupt') {
-                        // 👇 捕获人工审批，停止“思考中”，弹窗！
                         contentDiv.textContent = '⏸️ 等待人工审批...';
-
                         document.getElementById('approval-filename').textContent = data.data.filename;
                         document.getElementById('approval-code').textContent = data.data.code;
                         document.getElementById('approval-modal').style.display = 'flex';
-
-                        // 中断后立即断开当前 reader，等待审批结果后再发新请求
                         return;
                     } else if (data.type === 'error') {
                         contentDiv.textContent = `[错误] ${data.content}`;

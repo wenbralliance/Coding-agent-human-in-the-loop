@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 
-from langgraph.checkpoint.memory import MemorySaver
+
 from app.graph.state import AgentState
 from app.graph.nodes import prepare_context, agent_node, tools_node, save_and_extract
 from app.graph.edges import route_after_agent
@@ -16,6 +16,7 @@ from app.api.schemas import ChatRequest
 from app.api.settings import router as settings_router
 from app.db.connection import db_session
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage
 
@@ -59,40 +60,36 @@ class ApproveRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
+    session_id = req.session_id or store.create_session("Web 会话")
     state = {
         "session_id": req.session_id,
         "user_input": req.message,
         "messages": [HumanMessage(content=req.message)]
     }
     # 必须传入 config，指定 thread_id (即 session_id)，MemorySaver 才知道存哪
-    config = {"configurable": {"thread_id": req.session_id}}
+    config = {"configurable": {"thread_id": session_id}}
 
     async def event_generator():
         try:
-            # 同时监听 updates（节点完成）和 custom（流式文本）
             async for mode, chunk in graph.astream(state, config=config, stream_mode=["updates", "custom"]):
-
-                # 1. 流式文本
                 if mode == "custom":
                     if isinstance(chunk, dict) and chunk.get("type") == "text":
                         yield f"data: {json.dumps(chunk)}\n\n"
 
-                # 2. 节点更新（包含工具执行完成、HITL 中断）
                 elif mode == "updates":
                     for node_name, node_output in chunk.items():
                         if not isinstance(node_output, dict):
                             continue
 
-                        # 👇 核心：捕获 HITL 中断
+                        # 👇 拦截中断信号
                         if "__interrupt__" in node_output:
-                            interrupt_data = node_output["__interrupt__"][0].value
-                            yield f"data: {json.dumps({'type': 'interrupt', 'data': interrupt_data})}\n\n"
-                            return  # 抛出中断后，当前请求立刻结束，图挂起
+                            interrupt_obj = node_output["__interrupt__"][0]
+                            yield f"data: {json.dumps({'type': 'interrupt', 'data': interrupt_obj.value})}\n\n"
+                            return  # 立刻返回，断开这次流
 
-                        # 工具执行结果通知
                         if node_name == "tools":
                             for m in node_output.get("messages", []):
-                                if m.type == "tool":
+                                if getattr(m, "type", "") == "tool":
                                     yield f"data: {json.dumps({'type': 'tool_end', 'content': m.content})}\n\n"
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -113,31 +110,31 @@ async def approve_endpoint(req: ApproveRequest):
 
     async def event_generator():
         try:
-            async for mode, chunk in graph.astream(state, config=config, stream_mode=["updates", "custom"]):
+            # 使用最稳定的 v1 事件流监听
+            async for event in graph.astream_events(state, config=config, version="v1"):
+                kind = event["event"]
 
-                # 1. 拦截打字机文本流
-                if mode == "custom":
-                    if isinstance(chunk, dict) and chunk.get("type") == "text":
-                        yield f"data: {json.dumps(chunk)}\n\n"
+                # 1. 捕获模型流式输出文字
+                if kind == "on_chat_model_stream":
+                    content = event["data"]["chunk"].content
+                    if content:
+                        yield f"data: {json.dumps({'type': 'text', 'content': content})}\n\n"
 
-                # 2. 拦截节点更新和中断信号
-                elif mode == "updates":
-                    for node_name, node_output in chunk.items():
-                        if not isinstance(node_output, dict):
-                            continue
+                # 2. 捕获工具开始执行（可以让前端显示状态）
+                elif kind == "on_tool_start":
+                    yield f"data: {json.dumps({'type': 'tool_start', 'name': event['name']})}\n\n"
 
-                        # 👇 核心修复：捕获 LangGraph 的 interrupt 信号！
-                        if "__interrupt__" in node_output:
-                            # node_output["__interrupt__"] 是一个元组，取第 0 个元素的 value
-                            interrupt_data = node_output["__interrupt__"][0].value
-                            yield f"data: {json.dumps({'type': 'interrupt', 'data': interrupt_data})}\n\n"
-                            return  # 抛出中断后，直接结束当前流，等待用户点批准
+                # 3. 捕获工具执行结束
+                elif kind == "on_tool_end":
+                    yield f"data: {json.dumps({'type': 'tool_end', 'content': event['data'].get('output', '')})}\n\n"
 
-                        # 拦截工具执行结果
-                        if node_name == "tools":
-                            for m in node_output.get("messages", []):
-                                if m.type == "tool":
-                                    yield f"data: {json.dumps({'type': 'tool_end', 'content': m.content})}\n\n"
+                # 4. 👇 终极核心：捕获图的 interrupt 中断！
+                elif kind == "on_chain_stream":
+                    chunk = event["data"].get("chunk", {})
+                    if "__interrupt__" in chunk:
+                        interrupt_obj = chunk["__interrupt__"][0]
+                        yield f"data: {json.dumps({'type': 'interrupt', 'data': interrupt_obj.value})}\n\n"
+                        return  # 必须 return 结束流
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
