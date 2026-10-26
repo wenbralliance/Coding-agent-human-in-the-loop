@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from pathlib import Path
 from app.config import ENV_PATH, settings
+from app.llm.tracing import refresh_langsmith
 
 router = APIRouter()
 
@@ -10,6 +11,9 @@ class SettingsUpdate(BaseModel):
     llm_api_key: str | None = None
     embedding_api_key: str | None = None
     workspace_path: str | None = None
+    langsmith_tracing: bool | None = None
+    langsmith_api_key: str | None = None
+    langsmith_project: str | None = None
 
 
 @router.get("/api/settings")
@@ -35,6 +39,10 @@ def update_settings(data: SettingsUpdate):
     if data.llm_api_key: updates["LLM_API_KEY"] = data.llm_api_key
     if data.embedding_api_key: updates["EMBEDDING_API_KEY"] = data.embedding_api_key
     if data.workspace_path: updates["WORKSPACE_PATH"] = data.workspace_path
+    if data.langsmith_tracing is not None:
+        updates["LANGSMITH_TRACING"] = "true" if data.langsmith_tracing else "false"
+    if data.langsmith_api_key: updates["LANGSMITH_API_KEY"] = data.langsmith_api_key
+    if data.langsmith_project: updates["LANGSMITH_PROJECT"] = data.langsmith_project
 
     if not updates: return {"status": "no_change"}
 
@@ -62,5 +70,12 @@ def update_settings(data: SettingsUpdate):
         settings.EMBEDDING_API_KEY = data.embedding_api_key
     if data.workspace_path:
         settings.WORKSPACE_PATH = data.workspace_path
+    if data.langsmith_tracing is not None:
+        settings.LANGSMITH_TRACING = data.langsmith_tracing
+    if data.langsmith_api_key:
+        settings.LANGSMITH_API_KEY = data.langsmith_api_key
+    if data.langsmith_project:
+        settings.LANGSMITH_PROJECT = data.langsmith_project
+    refresh_langsmith()
 
     return {"status": "ok"}

@@ -77,7 +77,11 @@ async def main():
             state = {
                 "session_id": session_id,
                 "user_input": user_input,
-                "messages": [HumanMessage(content=user_input)]
+                "messages": [HumanMessage(content=user_input)],
+                "tool_rounds": 0,
+                "edit_batches": 0,
+                "edit_operations": 0,
+                "edited_files": [],
             }
 
             print("\nAgent 思考中...\n")

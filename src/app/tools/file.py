@@ -1,9 +1,9 @@
 from pathlib import Path
 from pydantic import BaseModel, Field
 from app.tools.base import tool
-from app.config import settings
+from app.config import APP_HOME, settings
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = APP_HOME
 
 def get_workspace_dir() -> Path:
     """动态获取当前工作区路径，支持热更新"""
@@ -32,7 +32,7 @@ class GrepArgs(BaseModel):
     keyword: str = Field(description="要搜索的关键词或代码片段")
 
 # 工具实现
-@tool(WriteFileArgs, "将代码内容写入 workspace 下的文件")
+@tool(WriteFileArgs, "只写入一个文件；创建或覆盖两个及以上文件时必须使用 write_files")
 def write_file(filename: str, content: str) -> str:
     workspace = get_workspace_dir()
     target = (workspace / filename).resolve()

@@ -2,10 +2,10 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 import sqlite_vec
-from app.config import settings
+from app.config import APP_HOME, settings
 
 # 项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = APP_HOME
 
 
 def get_db() -> sqlite3.Connection:

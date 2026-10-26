@@ -8,3 +8,9 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     # 用户的原始输入（用于最后提取记忆）
     user_input: str
+    # 当前用户请求已经执行的工具轮数
+    tool_rounds: int
+    # 当前用户请求已经提交的批量编辑次数和操作数
+    edit_batches: int
+    edit_operations: int
+    edited_files: list[str]

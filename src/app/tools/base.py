@@ -4,8 +4,10 @@ import json
 
 from typing import Any, Callable, get_type_hints
 from pydantic import BaseModel
+from langsmith import trace
 
 from langgraph.errors import GraphInterrupt
+from app.tools.process_manager import get_current_session
 
 
 class Tool:
@@ -30,17 +32,32 @@ class Tool:
         }
 
     async def execute(self, arguments_json: str) -> str:
-        try:
-            args_dict = json.loads(arguments_json)
-            validated = self.args_schema(**args_dict)
-            if inspect.iscoroutinefunction(self.func):
-                return await self.func(**validated.model_dump())
-            return self.func(**validated.model_dump())
-        except GraphInterrupt:
-            # 🛑 如果是人工审批中断，必须向上抛出，不能吞掉！
-            raise
-        except Exception as e:
-            return f"工具执行失败: {e}"
+        async with trace(
+            f"tool.{self.name}",
+            run_type="tool",
+            inputs={"arguments": arguments_json},
+            metadata={
+                "tool_name": self.name,
+                "session_id": get_current_session(),
+            },
+            exceptions_to_handle=(GraphInterrupt,),
+        ) as run:
+            try:
+                args_dict = json.loads(arguments_json)
+                validated = self.args_schema(**args_dict)
+                if inspect.iscoroutinefunction(self.func):
+                    result = await self.func(**validated.model_dump())
+                else:
+                    result = self.func(**validated.model_dump())
+                run.end(outputs={"result": result})
+                return result
+            except GraphInterrupt:
+                # 🛑 如果是人工审批中断，必须向上抛出，不能吞掉！
+                raise
+            except Exception as e:
+                result = f"工具执行失败: {e}"
+                run.end(outputs={"result": result, "status": "error"})
+                return result
 
 
 def tool(args_schema: type[BaseModel], description: str):

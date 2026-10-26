@@ -2,6 +2,7 @@ import ast
 from pydantic import BaseModel, Field
 from app.tools.base import tool
 from app.llm.client import chat_async
+from app.tools.process_manager import get_current_session
 
 
 class AnalyzeCodeArgs(BaseModel):
@@ -55,5 +56,9 @@ async def review_code(code: str, language: str = "python") -> str:
 
 用简洁的条目输出，每条带严重程度（高/中/低）。"""
 
-    resp = await chat_async([{"role": "user", "content": prompt}])
+    resp = await chat_async(
+        [{"role": "user", "content": prompt}],
+        session_id=get_current_session() or None,
+        call_type="review",
+    )
     return resp["content"]

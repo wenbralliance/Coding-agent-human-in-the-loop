@@ -19,17 +19,63 @@ class MemoryStore:
     def create_session(self, title: str = "新对话") -> str:
         """创建一个新会话，返回生成的 session_id。"""
         session_id = f"s_{uuid.uuid4().hex[:8]}"
+        self.ensure_session(session_id, title)
+        return session_id
+
+    def ensure_session(self, session_id: str, title: str = "新对话") -> None:
+        """确保会话存在，用于第一条消息首次落库。"""
         with db_session() as db:
             db.execute(
-                "INSERT INTO sessions(id, title) VALUES (?, ?)",
+                "INSERT OR IGNORE INTO sessions(id, title) VALUES (?, ?)",
                 (session_id, title)
             )
-        return session_id
+
+    def delete_session(self, session_id: str) -> dict | None:
+        """删除会话及其本地关联数据，返回删除统计。"""
+        with db_session() as db:
+            exists = db.execute(
+                "SELECT 1 FROM sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+            if not exists:
+                return None
+
+            deleted_sources = db.execute(
+                """
+                DELETE FROM memory_sources
+                WHERE message_id IN (
+                    SELECT id FROM messages WHERE session_id = ?
+                )
+                """,
+                (session_id,),
+            ).rowcount
+            deleted_messages = db.execute(
+                "DELETE FROM messages WHERE session_id = ?",
+                (session_id,),
+            ).rowcount
+            deleted_llm_calls = db.execute(
+                "DELETE FROM llm_calls WHERE session_id = ?",
+                (session_id,),
+            ).rowcount
+            db.execute(
+                "DELETE FROM sessions WHERE id = ?",
+                (session_id,),
+            )
+
+        return {
+            "deleted_messages": deleted_messages,
+            "deleted_llm_calls": deleted_llm_calls,
+            "deleted_memory_sources": deleted_sources,
+        }
 
     def add_message(self, session_id: str, role: str, content: str) -> str:
         """存一条消息，返回 msg_id"""
         msg_id = f"m_{uuid.uuid4().hex[:8]}"
         with db_session() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO sessions(id, title) VALUES (?, '新对话')",
+                (session_id,)
+            )
             # 1. 插入消息
             db.execute(
                 "INSERT INTO messages(id, session_id, role, content) VALUES (?, ?, ?, ?)",

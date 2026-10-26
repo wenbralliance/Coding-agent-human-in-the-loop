@@ -1,0 +1,35 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Local application data
+data/
+workspace/
+logs/
+*.log
+
+# Dependencies and editor files
+node_modules/
+.idea/
+.vscode/
+.uv-cache/
+
+# Personal and generated local artifacts
+/文肇乐-AI Agent应用开发简历.docx
+/个人记账/
+
+# OS files
+.DS_Store
+Thumbs.db

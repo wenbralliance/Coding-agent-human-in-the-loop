@@ -1,0 +1,22 @@
+[project]
+name = "coding-agent"
+version = "1.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.151.0",
+    "langchain-deepseek>=1.1.1",
+    "langgraph>=1.2.15",
+    "langsmith>=0.14.9",
+    "pydantic-settings>=2.16.0",
+    "sqlite-vec>=0.1.9",
+    "uvicorn>=0.54.0",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

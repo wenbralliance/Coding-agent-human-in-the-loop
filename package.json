@@ -1,0 +1,24 @@
+{
+  "name": "coding-agent",
+  "version": "1.1.0",
+  "description": "一个能自己写代码、运行、迭代的 AI 编程助手。基于 LangGraph 的 ReAct 主循环，支持工具调用、Human-in-the-Loop 审批、长期记忆与流式输出。",
+  "main": "electron/main.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "start": "electron .",
+    "build:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^28.3.3"
+  },
+  "allowScripts": {
+    "electron@28.3.3": true
+  }
+}

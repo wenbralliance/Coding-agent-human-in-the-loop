@@ -34,12 +34,32 @@
 
     #session-list { flex: 1; overflow-y: auto; }
     .session-item {
-        padding: 10px 12px; font-size: 13px; cursor: pointer; border-radius: 6px;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        color: #333; margin-bottom: 2px;
+        display: flex; align-items: center; min-width: 0;
+        border-radius: 6px; color: #333; margin-bottom: 2px;
     }
     .session-item:hover { background: var(--hover); }
     .session-item.active { background: #e5e5e5; font-weight: 500; color: #000; }
+    .session-title {
+        flex: 1; min-width: 0; padding: 10px 4px 10px 12px;
+        border: 0; background: transparent; color: inherit; font: inherit;
+        text-align: left; white-space: nowrap; overflow: hidden;
+        text-overflow: ellipsis; cursor: pointer;
+    }
+    .session-title:focus-visible, .session-delete:focus-visible { outline: 2px solid #999; outline-offset: -2px; }
+    .session-delete {
+        width: 24px; height: 24px; margin-right: 6px; flex-shrink: 0;
+        border: 0; border-radius: 5px; background: transparent; color: #888;
+        font-size: 18px; line-height: 1; cursor: pointer; opacity: 0;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+    }
+    .session-item:hover .session-delete, .session-item.active .session-delete,
+    .session-delete:focus-visible { opacity: 1; }
+    .session-delete:hover { background: #fee2e2; color: #dc2626; }
+    .session-approval-badge {
+        flex-shrink: 0; padding: 2px 6px; border-radius: 999px;
+        background: #fef3c7; color: #92400e; font-size: 10px;
+        font-weight: 600; white-space: nowrap;
+    }
 
     .workspace-info {
         padding: 10px 12px; font-size: 12px; color: #333; word-break: break-all;
@@ -57,6 +77,7 @@
     #chat-container {
         flex: 1; overflow-y: auto; padding: 40px 20px; display: flex;
         flex-direction: column; gap: 24px; max-width: 800px; margin: 0 auto; width: 100%;
+        min-height: 0; min-width: 0;
     }
 
     #empty-state {
@@ -65,11 +86,23 @@
         pointer-events: none;
     }
 
-    .msg { display: flex; gap: 16px; width: 100%; }
+    .msg { display: flex; align-items: flex-start; gap: 16px; width: 100%; flex: 0 0 auto; }
     .msg-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
     .msg.user .msg-avatar { background: #000; color: #fff; }
     .msg.agent .msg-avatar { background: #e5e5e5; color: #000; }
-    .msg-content { font-size: 15px; line-height: 1.6; color: #222; white-space: pre-wrap; word-break: break-word; padding-top: 4px;}
+    .msg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+    .msg-content { font-size: 15px; line-height: 1.6; color: #222; white-space: pre-wrap; word-break: break-word; min-width: 0; }
+    .msg-activity { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; }
+    .msg-activity[hidden] { display: none; }
+    .tool-status {
+        display: flex; align-items: flex-start; gap: 8px; max-width: 100%;
+        padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px;
+        background: var(--sidebar); color: #555; font-size: 12px; line-height: 1.5;
+    }
+    .tool-status-icon { flex-shrink: 0; color: #0d9f6e; font-weight: 700; }
+    .tool-status-text { min-width: 0; word-break: break-word; }
+    .tool-status.error { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+    .tool-status.error .tool-status-icon { color: #dc2626; }
     .msg.error .msg-content { color: #d93025; }
 
     /* 底部输入区 */
@@ -81,7 +114,8 @@
     .input-box:focus-within { border-color: var(--accent); }
     textarea {
         width: 100%; border: none; outline: none; resize: none; padding: 16px;
-        font-size: 15px; font-family: inherit; min-height: 60px;
+        font-size: 15px; font-family: inherit; min-height: 60px; max-height: 160px;
+        overflow-y: hidden;
     }
     .input-footer { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #fafafa; border-top: 1px solid var(--border);}
     .btn-send { width: 32px; height: 32px; border-radius: 50%; background: #ccc; color: #fff; border: none; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
@@ -93,17 +127,83 @@
     .form-group { margin-bottom: 16px; margin-top: 16px;}
     .form-group label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;}
     .form-group input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; outline: none;}
+    .form-group .checkbox-row { display: flex; align-items: center; gap: 8px; }
+    .form-group .checkbox-row input { width: auto; }
+    .form-group #set-langsmith-key { margin-bottom: 8px; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
     .btn-secondary { background: #eee; color: #333; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;}
     .btn-primary { background: #000; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;}
+    .btn-danger { background: #dc2626; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-danger:disabled, .btn-secondary:disabled { cursor: not-allowed; opacity: 0.55; }
+    .delete-modal { width: 420px; }
+    .delete-modal h3 { margin: 0 0 12px; }
+    .delete-description { margin: 0; color: #666; font-size: 13px; line-height: 1.7; }
+    .delete-description strong { color: #222; }
+    #toast {
+        position: fixed; left: 50%; bottom: 34px; z-index: 300;
+        padding: 9px 16px; border-radius: 8px; background: #111; color: #fff;
+        font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+        opacity: 0; transform: translate(-50%, 10px); pointer-events: none;
+        transition: opacity 0.18s, transform 0.18s;
+    }
+    #toast.show { opacity: 1; transform: translate(-50%, 0); }
+    #toast.error { background: #991b1b; }
+    @media (hover: none) { .session-delete { opacity: 1; } }
 
-    /* HITL 审批弹窗 */
-    .approval-box { background: #fff; border-radius: 12px; width: 600px; max-width: 90vw; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); display: flex; flex-direction: column; }
-    .approval-box h3 { margin-top: 0; font-size: 18px; display: flex; align-items: center; gap: 8px; }
-    .approval-code { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; margin-bottom: 20px;}
-    .approval-actions { display: flex; justify-content: flex-end; gap: 12px; }
-    .btn-approve { background: #10b981; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-weight: bold;}
-    .btn-reject { background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-weight: bold;}
+    /* 输入框上方的非阻塞审批区 */
+    #approval-region {
+        width: 100%; max-width: 800px; margin: 0 auto;
+        padding: 0 20px 8px; flex-shrink: 0;
+    }
+    #approval-region[hidden] { display: none; }
+    .approval-panel {
+        border: 1px solid #edc66e; border-radius: 12px;
+        background: linear-gradient(180deg, #fffdf5 0%, #fff8e6 100%);
+        padding: 14px 16px; box-shadow: 0 4px 16px rgba(146, 64, 14, 0.08);
+    }
+    .approval-panel-header {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 16px; margin-bottom: 10px;
+    }
+    .approval-panel-title { display: flex; align-items: center; gap: 9px; }
+    .approval-warning-icon {
+        width: 24px; height: 24px; flex-shrink: 0; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        background: #f59e0b; color: #fff; font-size: 14px; font-weight: 700;
+    }
+    .approval-title { font-size: 14px; font-weight: 650; color: #422006; }
+    .approval-session { margin-top: 2px; font-size: 12px; color: #8a5a19; }
+    .approval-waiting {
+        flex-shrink: 0; padding: 3px 8px; border-radius: 999px;
+        background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 600;
+    }
+    .approval-request { margin-bottom: 10px; color: #4b3b22; font-size: 13px; line-height: 1.6; }
+    .approval-request code {
+        padding: 2px 6px; border-radius: 4px; background: rgba(120, 72, 0, 0.08);
+        color: #6b3f00; font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+    .approval-details { margin-bottom: 12px; }
+    .approval-details summary {
+        width: fit-content; cursor: pointer; color: #7c4a03;
+        font-size: 12px; font-weight: 600; user-select: none;
+    }
+    .approval-code-preview {
+        margin: 9px 0 0; padding: 12px; max-height: 170px; overflow: auto;
+        border-radius: 8px; background: #1f1f1f; color: #e5e7eb;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+    }
+    .approval-panel-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .btn-approval-reject, .btn-approval-approve {
+        border-radius: 7px; padding: 7px 14px; font-size: 12px;
+        font-weight: 600; cursor: pointer;
+    }
+    .btn-approval-reject { border: 1px solid #d6d3d1; background: #fff; color: #57534e; }
+    .btn-approval-reject:hover { background: #f5f5f4; }
+    .btn-approval-approve { border: 1px solid #0f9f6e; background: #10b981; color: #fff; }
+    .btn-approval-approve:hover { background: #0d9668; }
+    .btn-approval-reject:disabled, .btn-approval-approve:disabled { cursor: not-allowed; opacity: 0.55; }
 </style>
 </head>
 <body>
@@ -124,6 +224,33 @@
                 <div style="font-size: 40px; margin-bottom: 16px;">✧</div>
                 What should we build today?
             </div>
+        </div>
+
+        <div id="approval-region" hidden aria-live="polite">
+            <section class="approval-panel" aria-labelledby="approval-title">
+                <div class="approval-panel-header">
+                    <div class="approval-panel-title">
+                        <span class="approval-warning-icon">!</span>
+                        <div>
+                            <div id="approval-title" class="approval-title">需要人工审批</div>
+                            <div id="approval-session" class="approval-session"></div>
+                        </div>
+                    </div>
+                    <span class="approval-waiting">等待处理</span>
+                </div>
+                <div class="approval-request">
+                    <span id="approval-action-label">Agent 请求运行代码：</span>
+                    <code id="approval-filename"></code>
+                </div>
+                <details class="approval-details">
+                    <summary>查看将要执行的代码</summary>
+                    <pre id="approval-code" class="approval-code-preview"></pre>
+                </details>
+                <div class="approval-panel-actions">
+                    <button class="btn-approval-reject" onclick="submitApproval('reject')">拒绝</button>
+                    <button class="btn-approval-approve" onclick="submitApproval('approve')">批准并执行</button>
+                </div>
+            </section>
         </div>
 
         <div id="input-container">
@@ -150,6 +277,14 @@
                 <input type="password" id="set-emb-key" placeholder="sk-...">
             </div>
             <div class="form-group">
+                <label class="checkbox-row">
+                    <input type="checkbox" id="set-langsmith-tracing">
+                    Enable LangSmith tracing
+                </label>
+                <input type="password" id="set-langsmith-key" placeholder="LangSmith API Key">
+                <input type="text" id="set-langsmith-project" placeholder="Project name">
+            </div>
+            <div class="form-group">
                 <label>Workspace Path</label>
                 <div style="display: flex; gap: 8px;">
                     <input type="text" id="set-workspace" placeholder="绝对路径" style="flex: 1;">
@@ -163,20 +298,22 @@
         </div>
     </div>
 
-    <!-- HITL 审批弹窗 -->
-    <div id="approval-modal" class="modal-overlay">
-        <div class="approval-box">
-            <h3>🛡️ 安全拦截：Agent 请求执行代码</h3>
-            <p style="color: #666; font-size: 14px; margin-bottom: 16px;">
-                目标文件：<code id="approval-filename" style="background:#eee;padding:2px 6px;border-radius:4px;"></code>
+    <!-- 删除会话确认 -->
+    <div id="delete-session-modal" class="modal-overlay">
+        <div class="modal delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-session-heading">
+            <h3 id="delete-session-heading">删除会话？</h3>
+            <p class="delete-description">
+                <strong id="delete-session-name"></strong> 将从本地数据库永久删除，
+                包括对话消息、关联记录和运行状态。此操作无法撤销。
             </p>
-            <div class="approval-code" id="approval-code"></div>
-            <div class="approval-actions">
-                <button class="btn-reject" onclick="submitApproval('reject')">拒绝</button>
-                <button class="btn-approve" onclick="submitApproval('approve')">批准执行</button>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeDeleteSessionModal()">取消</button>
+                <button id="confirm-delete-session" class="btn-danger" onclick="confirmDeleteSession()">删除</button>
             </div>
         </div>
     </div>
+
+    <div id="toast" role="status" aria-live="polite"></div>
 
     <script>
         const chatContainer = document.getElementById('chat-container');
@@ -184,10 +321,275 @@
         const sendBtn = document.getElementById('send-btn');
         const sessionListEl = document.getElementById('session-list');
         let sessionId = "";
+        let pendingDeleteSession = null;
+        let isDeletingSession = false;
+        let isStreaming = false;
+        let toastTimer = null;
+        let sessionsCache = [];
+        const sessionsById = new Map();
+        const pendingApprovals = new Map();
+        const INPUT_MAX_HEIGHT = 160;
+
+        const toolLabels = {
+            write_file: '写入文件',
+            read_file: '读取文件',
+            read_files: '批量读取',
+            edit_file: '编辑文件',
+            apply_edit_batch: '批量编辑',
+            write_files: '批量写入',
+            list_files: '列出文件',
+            grep_content: '搜索内容',
+            run_file: '运行代码',
+            analyze_code: '分析代码',
+            review_code: '审查代码'
+        };
+
+        const runStatusLabels = {
+            applied: '已应用',
+            no_changes: '无变化',
+            completed: '执行完成',
+            gui_started: '窗口已启动',
+            runtime_error: '运行失败',
+            dependency_error: '依赖缺失',
+            environment_error: '环境异常',
+            timeout: '执行超时',
+            launch_error: '启动失败',
+            invalid_file: '文件无效',
+            not_found: '文件不存在',
+            rejected: '已拒绝'
+        };
+
+        function createMessageElement(role, content = '') {
+            const isUser = role === 'user';
+            const message = document.createElement('div');
+            message.className = `msg ${isUser ? 'user' : 'agent'}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'msg-avatar';
+            avatar.textContent = isUser ? 'U' : 'AI';
+
+            const body = document.createElement('div');
+            body.className = 'msg-body';
+
+            const activity = document.createElement('div');
+            activity.className = 'msg-activity';
+            activity.hidden = true;
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'msg-content';
+            contentDiv.textContent = content;
+
+            body.append(activity, contentDiv);
+            message.append(avatar, body);
+            return message;
+        }
+
+        function appendToolStatus(agentDiv, toolName, resultContent = '') {
+            const activity = agentDiv.querySelector('.msg-activity');
+            const name = toolName || '未知工具';
+            const label = toolLabels[name] || name;
+            let resultStatus = '';
+            try {
+                resultStatus = JSON.parse(resultContent).status || '';
+            } catch (error) {
+                resultStatus = '';
+            }
+            const failedStatuses = new Set([
+                'runtime_error', 'dependency_error', 'environment_error',
+                'timeout', 'launch_error', 'invalid_file', 'not_found',
+                'rejected'
+            ]);
+
+            const row = document.createElement('div');
+            row.className = 'tool-status';
+            if (failedStatuses.has(resultStatus)) row.classList.add('error');
+
+            const icon = document.createElement('span');
+            icon.className = 'tool-status-icon';
+            icon.textContent = failedStatuses.has(resultStatus) ? '!' : '✓';
+
+            const detail = document.createElement('span');
+            detail.className = 'tool-status-text';
+            const baseText = label === name ? name : `${label} · ${name}`;
+            const statusText = runStatusLabels[resultStatus];
+            detail.textContent = statusText ? `${baseText} · ${statusText}` : baseText;
+
+            row.append(icon, detail);
+            activity.appendChild(row);
+            activity.hidden = false;
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            clearTimeout(toastTimer);
+            toast.textContent = message;
+            toast.className = `show${type === 'error' ? ' error' : ''}`;
+            toastTimer = setTimeout(() => {
+                toast.className = type === 'error' ? 'error' : '';
+            }, 2600);
+        }
+
+        function getSessionTitle(id) {
+            return sessionsById.get(id)?.title || '当前会话';
+        }
+
+        function renderApprovalPanel() {
+            const region = document.getElementById('approval-region');
+            const approval = pendingApprovals.get(sessionId);
+            if (!approval) {
+                region.hidden = true;
+                return;
+            }
+
+            const data = approval.data || {};
+            region.hidden = false;
+            document.getElementById('approval-session').textContent =
+                `会话「${getSessionTitle(sessionId)}」`;
+            document.getElementById('approval-action-label').textContent =
+                data.mode === 'gui' ? 'Agent 请求启动窗口程序：' : 'Agent 请求运行脚本：';
+            document.getElementById('approval-filename').textContent = data.filename || '未知文件';
+            document.getElementById('approval-code').textContent = data.code || '（没有可预览的代码）';
+        }
+
+        function renderSessionList() {
+            sessionListEl.innerHTML = '';
+            sessionsCache.forEach(session => {
+                sessionListEl.appendChild(createSessionElement(session));
+            });
+        }
+
+        function setPendingApproval(id, approvalData) {
+            pendingApprovals.set(id, {
+                data: approvalData,
+                sessionTitle: getSessionTitle(id)
+            });
+            renderSessionList();
+            renderApprovalPanel();
+        }
+
+        function clearPendingApproval(id) {
+            pendingApprovals.delete(id);
+            renderSessionList();
+            renderApprovalPanel();
+        }
+
+        async function syncPendingApproval(id) {
+            try {
+                const response = await fetch(`/api/sessions/${encodeURIComponent(id)}/approval`);
+                if (!response.ok || id !== sessionId) return;
+                const payload = await response.json();
+                if (payload.pending) {
+                    setPendingApproval(id, payload.data);
+                } else if (!isStreaming && pendingApprovals.has(id)) {
+                    clearPendingApproval(id);
+                }
+            } catch (error) {
+                console.error('同步审批状态失败', error);
+            }
+        }
+
+        function createSessionElement(session) {
+            const item = document.createElement('div');
+            item.className = `session-item ${session.id === sessionId ? 'active' : ''}`;
+
+            const openButton = document.createElement('button');
+            openButton.type = 'button';
+            openButton.className = 'session-title';
+            openButton.textContent = session.title;
+            openButton.title = session.title;
+            openButton.addEventListener('click', () => switchSession(session.id));
+
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'session-delete';
+            deleteButton.textContent = '×';
+            deleteButton.title = '删除会话';
+            deleteButton.setAttribute('aria-label', `删除会话：${session.title}`);
+            deleteButton.addEventListener('click', event => {
+                event.stopPropagation();
+                openDeleteSessionModal(session);
+            });
+
+            item.append(openButton);
+            if (pendingApprovals.has(session.id)) {
+                const badge = document.createElement('span');
+                badge.className = 'session-approval-badge';
+                badge.textContent = '待审批';
+                item.appendChild(badge);
+            }
+            item.appendChild(deleteButton);
+            return item;
+        }
+
+        function openDeleteSessionModal(session) {
+            if (isStreaming) {
+                showToast('请等待当前任务完成后再删除会话', 'error');
+                return;
+            }
+            pendingDeleteSession = session;
+            document.getElementById('delete-session-name').textContent = `“${session.title}”`;
+            document.getElementById('delete-session-modal').style.display = 'flex';
+            document.getElementById('confirm-delete-session').focus();
+        }
+
+        function closeDeleteSessionModal(force = false) {
+            if (isDeletingSession && !force) return;
+            document.getElementById('delete-session-modal').style.display = 'none';
+            if (!isDeletingSession) pendingDeleteSession = null;
+        }
+
+        async function confirmDeleteSession() {
+            const target = pendingDeleteSession;
+            if (!target || isDeletingSession) return;
+
+            const deleteButton = document.getElementById('confirm-delete-session');
+            isDeletingSession = true;
+            deleteButton.disabled = true;
+            deleteButton.textContent = '删除中...';
+
+            try {
+                const response = await fetch(`/api/sessions/${encodeURIComponent(target.id)}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok) {
+                    const payload = await response.json().catch(() => ({}));
+                    throw new Error(payload.detail || `HTTP ${response.status}`);
+                }
+
+                closeDeleteSessionModal(true);
+                pendingDeleteSession = null;
+                pendingApprovals.delete(target.id);
+                showToast('会话已删除');
+
+                if (target.id === sessionId) {
+                    newChat();
+                    await loadSessions();
+                } else {
+                    await loadSessions();
+                }
+            } catch (error) {
+                showToast(`删除失败：${error.message}`, 'error');
+            } finally {
+                isDeletingSession = false;
+                deleteButton.disabled = false;
+                deleteButton.textContent = '删除';
+            }
+        }
+
+        function resizeInput() {
+            inputEl.style.height = 'auto';
+            const nextHeight = Math.min(inputEl.scrollHeight, INPUT_MAX_HEIGHT);
+            inputEl.style.height = `${nextHeight}px`;
+            inputEl.style.overflowY = inputEl.scrollHeight > INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
+        }
+
+        function resetInputHeight() {
+            inputEl.style.height = '';
+            inputEl.style.overflowY = 'hidden';
+        }
 
         inputEl.addEventListener('input', () => {
-            inputEl.style.height = 'auto';
-            inputEl.style.height = (inputEl.scrollHeight) + 'px';
+            resizeInput();
             sendBtn.classList.toggle('active', !!inputEl.value.trim());
         });
 
@@ -195,24 +597,26 @@
         async function loadSessions() {
             try {
                 const res = await fetch('/api/sessions');
-                if (!res.ok) return;
+                if (!res.ok) return [];
                 const sessions = await res.json();
-                sessionListEl.innerHTML = '';
+                sessionsCache = sessions;
+                sessionsById.clear();
                 sessions.forEach(s => {
-                    const div = document.createElement('div');
-                    div.className = `session-item ${s.id === sessionId ? 'active' : ''}`;
-                    div.textContent = s.title;
-                    div.title = s.title;
-                    div.onclick = () => switchSession(s.id);
-                    sessionListEl.appendChild(div);
+                    sessionsById.set(s.id, s);
                 });
+                renderSessionList();
+                renderApprovalPanel();
+                return sessions;
             } catch (e) { console.error("加载历史失败", e); }
+            return [];
         }
 
         async function switchSession(id) {
             sessionId = id;
             localStorage.setItem('current_session_id', id);
-            loadSessions();
+            renderSessionList();
+            renderApprovalPanel();
+            syncPendingApproval(id);
             chatContainer.innerHTML = '';
             try {
                 const res = await fetch(`/api/sessions/${id}/messages`);
@@ -222,29 +626,40 @@
                 } else {
                     msgs.forEach(m => {
                         const isUser = m.role === 'user';
-                        const div = document.createElement('div');
-                        div.className = `msg ${isUser ? 'user' : 'agent'}`;
-                        div.innerHTML = `<div class="msg-avatar">${isUser ? 'U' : 'AI'}</div><div class="msg-content">${m.content}</div>`;
-                        chatContainer.appendChild(div);
+                        chatContainer.appendChild(createMessageElement(isUser ? 'user' : 'agent', m.content));
                     });
                 }
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             } catch(e) { console.error(e); }
         }
 
-        async function newChat() {
-            sessionId = "s_" + Math.random().toString(36).slice(2, 10);
-            localStorage.setItem('current_session_id', sessionId);
+        function newChat() {
+            sessionId = '';
+            localStorage.removeItem('current_session_id');
+            renderApprovalPanel();
             chatContainer.innerHTML = `<div id="empty-state"><div style="font-size: 40px; margin-bottom: 16px;">✧</div>What should we build today?</div>`;
+            renderSessionList();
+            inputEl.focus();
+        }
 
-            // 👇 通知后端马上建一个空会话
-            await fetch('/api/sessions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session_id: sessionId })
-            });
+        async function rollbackFailedNewSession(id) {
+            try {
+                await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
+                    method: 'DELETE'
+                });
+            } catch (error) {
+                console.error('回滚失败会话时出错', error);
+            }
 
-            loadSessions(); // 立刻刷新左侧
+            pendingApprovals.delete(id);
+            sessionsCache = sessionsCache.filter(session => session.id !== id);
+            sessionsById.delete(id);
+            if (sessionId === id) {
+                sessionId = '';
+                localStorage.removeItem('current_session_id');
+                renderSessionList();
+                renderApprovalPanel();
+            }
         }
 
         // 设置
@@ -255,7 +670,14 @@
                 document.getElementById('current-workspace').textContent = data.WORKSPACE_PATH || '未配置';
                 if (data.LLM_API_KEY) document.getElementById('set-llm-key').placeholder = data.LLM_API_KEY;
                 if (data.EMBEDDING_API_KEY) document.getElementById('set-emb-key').placeholder = data.EMBEDDING_API_KEY;
+                if (data.LANGSMITH_API_KEY) document.getElementById('set-langsmith-key').placeholder = data.LANGSMITH_API_KEY;
+                document.getElementById('set-langsmith-tracing').checked = data.LANGSMITH_TRACING === 'true';
+                document.getElementById('set-langsmith-project').value = data.LANGSMITH_PROJECT || 'coding-agent';
                 if (data.WORKSPACE_PATH) document.getElementById('set-workspace').value = data.WORKSPACE_PATH;
+                if (!data.LLM_API_KEY || !data.EMBEDDING_API_KEY) {
+                    openSettings();
+                    showToast('首次使用请填写 LLM 和 Embedding API Key');
+                }
             } catch (e) { console.error(e); }
         }
         function openSettings() { document.getElementById('modal-overlay').style.display = 'flex'; }
@@ -270,49 +692,83 @@
             const payload = {
                 llm_api_key: document.getElementById('set-llm-key').value || null,
                 embedding_api_key: document.getElementById('set-emb-key').value || null,
-                workspace_path: document.getElementById('set-workspace').value || null
+                workspace_path: document.getElementById('set-workspace').value || null,
+                langsmith_tracing: document.getElementById('set-langsmith-tracing').checked,
+                langsmith_api_key: document.getElementById('set-langsmith-key').value || null,
+                langsmith_project: document.getElementById('set-langsmith-project').value || null
             };
             await fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-            alert('保存成功！'); closeSettings(); loadSettings();
+            showToast('设置已保存');
+            closeSettings();
+            loadSettings();
         }
 
         // 聊天
         async function sendMessage() {
+            if (isStreaming) {
+                showToast('请等待当前任务完成', 'error');
+                return;
+            }
+            if (pendingApprovals.has(sessionId)) {
+                showToast('请先处理当前会话的审批请求', 'error');
+                return;
+            }
             const text = inputEl.value.trim();
             if (!text) return;
-            inputEl.value = ''; inputEl.style.height = 'auto'; sendBtn.classList.remove('active');
+            inputEl.value = '';
+            resetInputHeight();
+            sendBtn.classList.remove('active');
             const es = document.getElementById('empty-state');
             if(es) es.style.display = 'none';
+            const isNewSession = !sessionId;
+            if (!sessionId) {
+                sessionId = "s_" + Math.random().toString(36).slice(2, 10);
+                localStorage.setItem('current_session_id', sessionId);
+            }
+            const requestSessionId = sessionId;
 
-            const userDiv = document.createElement('div');
-            userDiv.className = 'msg user';
-            userDiv.innerHTML = `<div class="msg-avatar">U</div><div class="msg-content">${text}</div>`;
+            const userDiv = createMessageElement('user', text);
             chatContainer.appendChild(userDiv);
 
-            const agentDiv = document.createElement('div');
-            agentDiv.className = 'msg agent';
-            agentDiv.innerHTML = `<div class="msg-avatar">AI</div><div class="msg-content">思考中...</div>`;
+            const agentDiv = createMessageElement('agent', '思考中...');
             chatContainer.appendChild(agentDiv);
             const contentDiv = agentDiv.querySelector('.msg-content');
             chatContainer.scrollTop = chatContainer.scrollHeight;
 
+            isStreaming = true;
             try {
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionId, message: text })
+                    body: JSON.stringify({ session_id: requestSessionId, message: text })
                 });
-                await processStream(response, agentDiv, contentDiv);
-                loadSessions();
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const outcome = await processStream(
+                    response,
+                    agentDiv,
+                    contentDiv,
+                    requestSessionId
+                );
+                if (outcome === 'error' && isNewSession) {
+                    await rollbackFailedNewSession(requestSessionId);
+                }
+                await loadSessions();
             } catch (e) {
                 contentDiv.textContent = '请求失败: ' + e.message;
+                if (isNewSession) {
+                    await rollbackFailedNewSession(requestSessionId);
+                }
+            } finally {
+                isStreaming = false;
             }
         }
 
-        async function processStream(response, agentDiv, contentDiv) {
+        async function processStream(response, agentDiv, contentDiv, streamSessionId) {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
+            let hasText = false;
+            let terminalStatus = 'done';
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -325,52 +781,84 @@
                     const data = JSON.parse(line.slice(6));
 
                     if (data.type === 'text') {
-                        if (contentDiv.textContent === '思考中...') contentDiv.textContent = '';
+                        if (!hasText) {
+                            contentDiv.textContent = '';
+                            hasText = true;
+                        }
                         contentDiv.textContent += data.content;
                     } else if (data.type === 'tool_end') {
-                        const toolDiv = document.createElement('div');
-                        toolDiv.className = 'tool-status';
-                        toolDiv.innerHTML = `✅ 工具执行完成`;
-                        agentDiv.insertBefore(toolDiv, contentDiv);
+                        appendToolStatus(agentDiv, data.name, data.content);
                         contentDiv.textContent = '继续思考中...';
                     } else if (data.type === 'interrupt') {
                         contentDiv.textContent = '⏸️ 等待人工审批...';
-                        document.getElementById('approval-filename').textContent = data.data.filename;
-                        document.getElementById('approval-code').textContent = data.data.code;
-                        document.getElementById('approval-modal').style.display = 'flex';
-                        return;
+                        setPendingApproval(streamSessionId, data.data);
+                        if (streamSessionId !== sessionId) {
+                            showToast(`会话「${getSessionTitle(streamSessionId)}」有一条审批请求`);
+                        }
+                        return 'interrupt';
                     } else if (data.type === 'error') {
                         contentDiv.textContent = `[错误] ${data.content}`;
+                        terminalStatus = 'error';
+                    } else if (data.type === 'warning') {
+                        showToast(data.content, 'error');
+                    } else if (data.type === 'limit') {
+                        contentDiv.textContent = data.content;
+                        hasText = true;
                     }
                     chatContainer.scrollTop = chatContainer.scrollHeight;
                 }
             }
+            return terminalStatus;
         }
 
         async function submitApproval(action) {
-            document.getElementById('approval-modal').style.display = 'none';
+            const approvalSessionId = sessionId;
+            const approval = pendingApprovals.get(approvalSessionId);
+            if (!approval || isStreaming) return;
+
             const agentDivs = document.querySelectorAll('.msg.agent');
             const lastAgentDiv = agentDivs[agentDivs.length - 1];
-            const contentDiv = lastAgentDiv.querySelector('.msg-content');
+            const contentDiv = lastAgentDiv?.querySelector('.msg-content');
+            const panelButtons = document.querySelectorAll('.approval-panel-actions button');
 
+            isStreaming = true;
+            panelButtons.forEach(button => { button.disabled = true; });
+            if (contentDiv) {
+                contentDiv.textContent = action === 'approve' ? '已批准，正在执行...' : '已拒绝，正在处理...';
+            }
+            clearPendingApproval(approvalSessionId);
+            let decisionAccepted = false;
             try {
                 const response = await fetch('/api/approve', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionId, action: action })
+                    body: JSON.stringify({ session_id: approvalSessionId, action: action })
                 });
-                await processStream(response, lastAgentDiv, contentDiv);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                decisionAccepted = true;
+                await processStream(response, lastAgentDiv, contentDiv, approvalSessionId);
+                await loadSessions();
             } catch (e) {
-                contentDiv.textContent = '请求失败: ' + e.message;
+                if (!decisionAccepted) {
+                    setPendingApproval(approvalSessionId, approval.data);
+                }
+                if (contentDiv) contentDiv.textContent = '审批请求失败: ' + e.message;
+                showToast(`审批失败：${e.message}`, 'error');
+            } finally {
+                isStreaming = false;
+                panelButtons.forEach(button => { button.disabled = false; });
             }
         }
 
         async function init() {
             await loadSettings();
+            const sessions = await loadSessions();
             const savedId = localStorage.getItem('current_session_id');
-            if (savedId) switchSession(savedId);
-            else newChat();
-            loadSessions();
+            if (savedId && sessions.some(s => s.id === savedId)) {
+                await switchSession(savedId);
+            } else {
+                newChat();
+            }
         }
 
         inputEl.addEventListener('keydown', (e) => {

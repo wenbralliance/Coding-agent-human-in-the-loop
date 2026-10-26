@@ -35,6 +35,12 @@ async def _call_embedding_api(texts: list[str]) -> list[list[float]]:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(url, headers=headers, json=payload)
 
+                if response.status_code in (401, 403):
+                    raise EmbeddingError(
+                        f"Embedding API 鉴权失败: HTTP {response.status_code}. "
+                        "请检查 EMBEDDING_API_KEY 是否与 EMBEDDING_BASE_URL 属于同一服务。"
+                    )
+
                 if response.status_code != 200:
                     raise EmbeddingError(f"API 错误: {response.status_code} - {response.text}")
 

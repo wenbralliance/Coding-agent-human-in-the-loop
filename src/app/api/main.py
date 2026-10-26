@@ -1,5 +1,9 @@
 import json
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Literal
+
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -8,19 +12,40 @@ from pydantic import BaseModel
 
 
 from app.graph.state import AgentState
-from app.graph.nodes import prepare_context, agent_node, tools_node, save_and_extract
+from app.graph.nodes import prepare_context, agent_node, tools_node, tool_limit, save_and_extract
 from app.graph.edges import route_after_agent
-from app.graph.build import build_graph
 from app.memory.store import MemoryStore
 from app.api.schemas import ChatRequest
 from app.api.settings import router as settings_router
+from app.config import settings
 from app.db.connection import db_session
+from app.db.schema import create_all_tables
+from app.llm.resilience import get_llm_circuit_snapshot
+from app.llm.tracing import langgraph_trace_config, tracing_enabled
+from app.tools.process_manager import process_registry
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
+from langgraph.types import Command
 from langchain_core.messages import HumanMessage
 
-app = FastAPI(title="Coding Agent Local Engine")
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    with db_session() as db:
+        create_all_tables(db)
+        db.execute("""
+            DELETE FROM sessions
+            WHERE NOT EXISTS (
+                SELECT 1 FROM messages WHERE messages.session_id = sessions.id
+            )
+        """)
+    yield
+
+
+app = FastAPI(title="Coding Agent Local Engine", lifespan=lifespan)
 store = MemoryStore()
 
 # 👇 重新编译图，这次必须挂载 MemorySaver（断点保存器）
@@ -28,120 +53,175 @@ builder = StateGraph(AgentState)
 builder.add_node("prepare", prepare_context)
 builder.add_node("agent", agent_node)
 builder.add_node("tools", tools_node)
+builder.add_node("limit", tool_limit)
 builder.add_node("save", save_and_extract)
 builder.add_edge(START, "prepare")
 builder.add_edge("prepare", "agent")
-builder.add_conditional_edges("agent", route_after_agent, {"tools": "tools", "save": "save"})
+builder.add_conditional_edges(
+    "agent",
+    route_after_agent,
+    {"tools": "tools", "limit": "limit", "save": "save"},
+)
 builder.add_edge("tools", "agent")
+builder.add_edge("limit", "save")
 builder.add_edge("save", END)
 
 memory = MemorySaver()
 graph = builder.compile(checkpointer=memory)
 
 app.include_router(settings_router)
-app.mount("/static", StaticFiles(directory="src/app/api/static"), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    with open("src/app/api/static/index.html", "r", encoding="utf-8") as f:
-        return f.read()
+    with (STATIC_DIR / "index.html").open("r", encoding="utf-8") as f:
+        content = f.read()
+    return HTMLResponse(
+        content=content,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
-class ChatRequest(BaseModel):
-    session_id: str
-    message: str
+@app.get("/api/health")
+def health():
+    return {
+        "status": "ok",
+        "configured": bool(settings.LLM_API_KEY and settings.EMBEDDING_API_KEY),
+        "langsmith_tracing": tracing_enabled(),
+        "llm_circuit": get_llm_circuit_snapshot(),
+    }
 
 
 class ApproveRequest(BaseModel):
     session_id: str
-    action: str  # "approve" 或 "reject"
+    action: Literal["approve", "reject"]
+
+
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _run_config(session_id: str) -> dict:
+    config = {"configurable": {"thread_id": session_id}}
+    config.update(langgraph_trace_config(session_id))
+    return config
+
+
+def _get_interrupts(chunk: dict) -> tuple:
+    """
+    LangGraph 的中断位于 updates 流的顶层：
+    {"__interrupt__": (Interrupt(...),)}
+
+    同时兼容某些版本将它放在节点输出内部的结构。
+    """
+    interrupts = chunk.get("__interrupt__")
+    if interrupts:
+        return tuple(interrupts)
+
+    for node_output in chunk.values():
+        if isinstance(node_output, dict):
+            interrupts = node_output.get("__interrupt__")
+            if interrupts:
+                return tuple(interrupts)
+    return ()
+
+
+async def _stream_graph(graph_input, config: dict):
+    """统一处理首次对话和审批恢复的 SSE 事件。"""
+    async for mode, chunk in graph.astream(
+        graph_input,
+        config=config,
+        stream_mode=["updates", "custom"],
+    ):
+        if mode == "custom":
+            if isinstance(chunk, dict) and chunk.get("type") in {
+                "text",
+                "warning",
+                "limit",
+            }:
+                yield _sse(chunk)
+            continue
+
+        if mode != "updates" or not isinstance(chunk, dict):
+            continue
+
+        # 中断是 updates 事件本身的顶层字段，不是某个节点完成后的返回值。
+        # 必须在遍历节点前检查，否则 Interrupt 元组会被 isinstance(..., dict) 过滤掉。
+        interrupts = _get_interrupts(chunk)
+        if interrupts:
+            interrupt_obj = interrupts[0]
+            yield _sse({
+                "type": "interrupt",
+                "data": getattr(interrupt_obj, "value", interrupt_obj),
+                "interrupt_id": getattr(interrupt_obj, "id", None),
+            })
+            return
+
+        for node_name, node_output in chunk.items():
+            if node_name == "tools" and isinstance(node_output, dict):
+                for message in node_output.get("messages", []):
+                    if getattr(message, "type", "") == "tool":
+                        yield _sse({
+                            "type": "tool_end",
+                            "name": getattr(message, "name", ""),
+                            "content": message.content,
+                        })
+
+    yield _sse({"type": "done"})
+
+
+def _streaming_response(graph_input, config: dict) -> StreamingResponse:
+    async def event_generator():
+        try:
+            async for event in _stream_graph(graph_input, config):
+                yield event
+        except Exception as exc:
+            yield _sse({"type": "error", "content": str(exc)})
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
-    session_id = req.session_id or store.create_session("Web 会话")
+    session_id = (req.session_id or "").strip()
+    if not session_id:
+        session_id = store.create_session("Web 会话")
+    else:
+        store.ensure_session(session_id)
+
     state = {
-        "session_id": req.session_id,
+        "session_id": session_id,
         "user_input": req.message,
-        "messages": [HumanMessage(content=req.message)]
+        "messages": [HumanMessage(content=req.message)],
+        "tool_rounds": 0,
+        "edit_batches": 0,
+        "edit_operations": 0,
+        "edited_files": [],
     }
     # 必须传入 config，指定 thread_id (即 session_id)，MemorySaver 才知道存哪
-    config = {"configurable": {"thread_id": session_id}}
-
-    async def event_generator():
-        try:
-            async for mode, chunk in graph.astream(state, config=config, stream_mode=["updates", "custom"]):
-                if mode == "custom":
-                    if isinstance(chunk, dict) and chunk.get("type") == "text":
-                        yield f"data: {json.dumps(chunk)}\n\n"
-
-                elif mode == "updates":
-                    for node_name, node_output in chunk.items():
-                        if not isinstance(node_output, dict):
-                            continue
-
-                        # 👇 拦截中断信号
-                        if "__interrupt__" in node_output:
-                            interrupt_obj = node_output["__interrupt__"][0]
-                            yield f"data: {json.dumps({'type': 'interrupt', 'data': interrupt_obj.value})}\n\n"
-                            return  # 立刻返回，断开这次流
-
-                        if node_name == "tools":
-                            for m in node_output.get("messages", []):
-                                if getattr(m, "type", "") == "tool":
-                                    yield f"data: {json.dumps({'type': 'tool_end', 'content': m.content})}\n\n"
-
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
-
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    config = _run_config(session_id)
+    return _streaming_response(state, config)
 
 
 @app.post("/api/approve")
 async def approve_endpoint(req: ApproveRequest):
-    config = {"configurable": {"thread_id": req.session_id}}
+    config = _run_config(req.session_id)
 
     # 用 Command(resume=...) 恢复图，把审批结果传进去
-    from langgraph.types import Command
     state = Command(resume={"action": req.action})
-
-    async def event_generator():
-        try:
-            # 使用最稳定的 v1 事件流监听
-            async for event in graph.astream_events(state, config=config, version="v1"):
-                kind = event["event"]
-
-                # 1. 捕获模型流式输出文字
-                if kind == "on_chat_model_stream":
-                    content = event["data"]["chunk"].content
-                    if content:
-                        yield f"data: {json.dumps({'type': 'text', 'content': content})}\n\n"
-
-                # 2. 捕获工具开始执行（可以让前端显示状态）
-                elif kind == "on_tool_start":
-                    yield f"data: {json.dumps({'type': 'tool_start', 'name': event['name']})}\n\n"
-
-                # 3. 捕获工具执行结束
-                elif kind == "on_tool_end":
-                    yield f"data: {json.dumps({'type': 'tool_end', 'content': event['data'].get('output', '')})}\n\n"
-
-                # 4. 👇 终极核心：捕获图的 interrupt 中断！
-                elif kind == "on_chain_stream":
-                    chunk = event["data"].get("chunk", {})
-                    if "__interrupt__" in chunk:
-                        interrupt_obj = chunk["__interrupt__"][0]
-                        yield f"data: {json.dumps({'type': 'interrupt', 'data': interrupt_obj.value})}\n\n"
-                        return  # 必须 return 结束流
-
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
-
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return _streaming_response(state, config)
 
 
 class CreateSessionReq(BaseModel):
@@ -155,6 +235,9 @@ def get_sessions():
             SELECT s.id, s.title, s.created_at,
                    (SELECT content FROM messages WHERE session_id = s.id ORDER BY created_at ASC LIMIT 1) as first_msg
             FROM sessions s
+            WHERE EXISTS (
+                SELECT 1 FROM messages m WHERE m.session_id = s.id
+            )
             ORDER BY s.created_at DESC
         """).fetchall()
 
@@ -178,6 +261,35 @@ def get_session_messages(session_id: str):
             (session_id,)
         ).fetchall()
         return [{"role": r["role"], "content": r["content"]} for r in rows]
+
+
+@app.get("/api/sessions/{session_id}/approval")
+async def get_pending_approval(session_id: str):
+    """查询指定会话是否仍在等待人工审批。"""
+    config = {"configurable": {"thread_id": session_id}}
+    snapshot = await graph.aget_state(config)
+    interrupts = getattr(snapshot, "interrupts", ())
+    if not interrupts:
+        return {"pending": False}
+
+    interrupt_obj = interrupts[0]
+    return {
+        "pending": True,
+        "data": getattr(interrupt_obj, "value", interrupt_obj),
+    }
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session_endpoint(session_id: str):
+    """永久删除会话、消息、调用记录和对应的 LangGraph 检查点。"""
+    counts = store.delete_session(session_id)
+    if counts is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    await memory.adelete_thread(session_id)
+    process_registry.stop_session(session_id)
+    return {"status": "ok", **counts}
+
 
 @app.post("/api/sessions")
 def create_session(req: CreateSessionReq):

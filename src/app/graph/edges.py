@@ -1,5 +1,5 @@
 from app.graph.state import AgentState
-from langgraph.graph import END
+from app.config import settings
 
 
 def route_after_agent(state: AgentState) -> str:
@@ -16,6 +16,8 @@ def route_after_agent(state: AgentState) -> str:
 
     # 如果最后一条消息是 AIMessage 并且包含 tool_calls，说明要调工具
     if getattr(last_msg, "tool_calls", None):
+        if int(state.get("tool_rounds", 0)) >= settings.MAX_TOOL_ROUNDS:
+            return "limit"
         return "tools"
 
     return "save"
