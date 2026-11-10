@@ -1,6 +1,8 @@
 from app.tools.base import ToolRegistry
-from app.tools.file import write_file, read_file, list_files, edit_file, grep_content
-from app.tools.batch import read_files, apply_edit_batch, write_files
+from app.tools.file import read_file, list_files, grep_content
+from app.tools.batch import read_files
+from app.tools.bash import bash_exec, bash_reset
+from app.tools.todo import todo_read, todo_write
 from app.tools.run import run_file
 from app.tools.code import analyze_code, review_code
 
@@ -8,14 +10,14 @@ from app.tools.code import analyze_code, review_code
 registry = ToolRegistry()
 
 # 把所有工具注册进去
-registry.register(write_file)
 registry.register(read_file)
 registry.register(list_files)
-registry.register(edit_file)
 registry.register(grep_content)
 registry.register(read_files)
-registry.register(apply_edit_batch)
-registry.register(write_files)
+registry.register(todo_write)
+registry.register(todo_read)
+registry.register(bash_exec)
+registry.register(bash_reset)
 registry.register(run_file)
 registry.register(analyze_code)
 registry.register(review_code)

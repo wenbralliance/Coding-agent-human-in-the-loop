@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, START, END
 from app.graph.state import AgentState
 from app.graph.nodes import *
-from app.graph.edges import route_after_agent
+from app.graph.edges import route_after_agent, route_after_tools
 
 
 def build_graph():
@@ -30,7 +30,14 @@ def build_graph():
     )
 
     # 4. 工具执行完，回到 agent 继续思考（ReAct 循环）
-    builder.add_edge("tools", "agent")
+    builder.add_conditional_edges(
+        "tools",
+        route_after_tools,
+        {
+            "agent": "agent",
+            "limit": "limit",
+        },
+    )
     builder.add_edge("limit", "save")
 
     # 5. 保存完就结束

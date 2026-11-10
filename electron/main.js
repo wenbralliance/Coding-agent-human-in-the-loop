@@ -28,6 +28,7 @@ function getRuntimePaths() {
       backendRoot: path.join(resources, 'backend'),
       sourceRoot: path.join(resources, 'backend', 'src'),
       sitePackages: path.join(resources, 'runtime', 'site-packages'),
+      gitBash: path.join(resources, 'git-bash', 'bin', 'bash.exe'),
       appHome: process.env.CODING_AGENT_HOME || app.getPath('userData')
     };
   }
@@ -38,6 +39,7 @@ function getRuntimePaths() {
     backendRoot: projectRoot,
     sourceRoot: path.join(projectRoot, 'src'),
     sitePackages: path.join(projectRoot, '.venv', 'Lib', 'site-packages'),
+    gitBash: process.env.CODING_AGENT_BASH_EXECUTABLE || '',
     appHome: projectRoot
   };
 }
@@ -90,7 +92,8 @@ async function startBackend() {
     PYTHONPATH: [paths.sourceRoot, paths.sitePackages].filter(Boolean).join(path.delimiter),
     PYTHONIOENCODING: 'utf-8',
     PYTHONUTF8: '1',
-    PYTHONDONTWRITEBYTECODE: '1'
+    PYTHONDONTWRITEBYTECODE: '1',
+    ...(paths.gitBash ? { CODING_AGENT_BASH_EXECUTABLE: paths.gitBash } : {})
   };
 
   pythonProcess = spawn(
@@ -181,13 +184,19 @@ app.whenReady().then(async () => {
       await createWindow(false);
       const pageTitle = await mainWindow.webContents.executeJavaScript('document.title');
       const pageText = await mainWindow.webContents.executeJavaScript('document.body.innerText');
-      if (!healthResponse.ok || pageTitle !== 'Coding Agent' || !pageText.includes('New Chat')) {
+      const health = await healthResponse.json();
+      if (
+        !healthResponse.ok ||
+        pageTitle !== 'Coding Agent' ||
+        !pageText.includes('New Chat') ||
+        !health.bash?.available
+      ) {
         throw new Error('打包应用健康检查失败。');
       }
       fs.writeFileSync(
         path.join(paths.appHome, 'smoke-test-ok.txt'),
         JSON.stringify({
-          health: await healthResponse.json(),
+          health,
           pageTitle,
           pageTextBytes: pageText.length,
           timestamp: new Date().toISOString()

@@ -57,6 +57,26 @@ class MemoryStore:
                 "DELETE FROM llm_calls WHERE session_id = ?",
                 (session_id,),
             ).rowcount
+            deleted_task_runs = db.execute(
+                "DELETE FROM task_runs WHERE session_id = ?",
+                (session_id,),
+            ).rowcount
+            deleted_tool_events = db.execute(
+                "DELETE FROM tool_call_events WHERE session_id = ?",
+                (session_id,),
+            ).rowcount
+            deleted_approvals = db.execute(
+                "DELETE FROM approval_events WHERE session_id = ?",
+                (session_id,),
+            ).rowcount
+            deleted_audit = db.execute(
+                "DELETE FROM audit_events WHERE session_id = ?",
+                (session_id,),
+            ).rowcount
+            deleted_alerts = db.execute(
+                "DELETE FROM alert_events WHERE session_id = ?",
+                (session_id,),
+            ).rowcount
             db.execute(
                 "DELETE FROM sessions WHERE id = ?",
                 (session_id,),
@@ -66,6 +86,11 @@ class MemoryStore:
             "deleted_messages": deleted_messages,
             "deleted_llm_calls": deleted_llm_calls,
             "deleted_memory_sources": deleted_sources,
+            "deleted_task_runs": deleted_task_runs,
+            "deleted_tool_events": deleted_tool_events,
+            "deleted_approvals": deleted_approvals,
+            "deleted_audit_events": deleted_audit,
+            "deleted_alerts": deleted_alerts,
         }
 
     def add_message(self, session_id: str, role: str, content: str) -> str:

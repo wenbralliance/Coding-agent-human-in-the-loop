@@ -1,5 +1,6 @@
 import ast
 from pydantic import BaseModel, Field
+from app.config import settings
 from app.tools.base import tool
 from app.llm.client import chat_async
 from app.tools.process_manager import get_current_session
@@ -14,7 +15,11 @@ class ReviewCodeArgs(BaseModel):
     language: str = Field(default="python", description="代码语言")
 
 
-@tool(AnalyzeCodeArgs, "静态分析 Python 代码：语法检查、提取函数和类名，不执行代码")
+@tool(
+    AnalyzeCodeArgs,
+    "静态分析 Python 代码：语法检查、提取函数和类名，不执行代码",
+    retryable=True,
+)
 def analyze_code(code: str) -> str:
     try:
         tree = ast.parse(code)
@@ -42,7 +47,11 @@ def analyze_code(code: str) -> str:
 类：{', '.join(classes) or '无'}"""
 
 
-@tool(ReviewCodeArgs, "使用 LLM 审查代码，指出 bug、性能问题和改进建议")
+@tool(
+    ReviewCodeArgs,
+    "使用 LLM 审查代码，指出 bug、性能问题和改进建议",
+    timeout=settings.LLM_TIMEOUT + 10,
+)
 async def review_code(code: str, language: str = "python") -> str:
     prompt = f"""你是一个代码审查专家。审查下面的 {language} 代码。
 指出：

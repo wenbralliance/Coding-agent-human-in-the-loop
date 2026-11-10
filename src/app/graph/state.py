@@ -4,6 +4,9 @@ from langgraph.graph.message import add_messages
 class AgentState(TypedDict):
     # 当前会话的 ID
     session_id: str
+    # 单次请求的运行 ID
+    run_id: str
+    workflow_version: str
     # 对话消息列表（LangGraph 的 add_messages 会自动把新消息追加进列表，而不是覆盖）
     messages: Annotated[list, add_messages]
     # 用户的原始输入（用于最后提取记忆）
@@ -14,3 +17,10 @@ class AgentState(TypedDict):
     edit_batches: int
     edit_operations: int
     edited_files: list[str]
+    # Agent 内部任务计划。
+    todos: list[dict]
+    # 循环检测。
+    recent_tool_signatures: list[str]
+    loop_detected: bool
+    loop_recovery_count: int
+    termination_reason: str

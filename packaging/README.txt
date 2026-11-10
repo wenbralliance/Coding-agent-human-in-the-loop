@@ -1,5 +1,5 @@
-Coding Agent Windows 便携版
-===========================
+Coding Agent v1.2.0 Windows 便携版
+==================================
 
 启动方式
 --------
@@ -27,6 +27,18 @@ Electron 用户数据目录，通常位于：
 - data\              SQLite 数据库
 - workspace\         默认代码工作区
 - logs\backend.log   后端运行日志
+- logs\agent-events.jsonl  结构化工具、审批和指标事件
+
+内置运行时
+----------
+安装包包含 Python 和 Git Bash，不要求目标电脑预装 Python 或 Git。
+
+任务计划与审批
+--------------
+- Agent 会先创建 todo_list，并按依赖关系推进。
+- 文件修改、测试和构建统一通过持久 Git Bash 执行。
+- 删除、Git 破坏性操作、代码执行和网络访问需要人工审批。
+- 提权命令默认拒绝。
 
 桌面快捷方式
 ------------

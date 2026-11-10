@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import uuid
@@ -11,8 +12,10 @@ from app.graph.state import AgentState
 from app.memory.retriever import MemoryRetriever
 from app.memory.store import MemoryStore
 from app.llm.client import LLMError, chat_stream_async
+from app.observability import record_alert, record_tool_call
+from app.security import assess_bash_command
 from app.tools import registry
-from app.tools.batch import describe_edit_batch
+from app.tools.file import get_workspace_dir
 from app.tools.process_manager import tool_session
 
 logger = logging.getLogger(__name__)
@@ -36,58 +39,39 @@ async def prepare_context(state: AgentState, writer: StreamWriter) -> dict:
             "content": f"长期记忆暂不可用，已继续执行当前任务：{exc}",
         })
 
-    system_prompt = """你是一个执行型 Coding Agent。目标是直接完成用户任务，并尽量简洁地汇报结果。
+    system_prompt = f"""你是一个执行型本地 Coding Agent。目标是在受限 workspace 内直接完成任务，并简洁汇报结果。
 
-    【工作规则】
-    1. 用户要求编写或修改代码时，使用对应工具完成文件操作；写文件后必须调用 `run_file` 验证。
-    2. 每个用户请求最多执行 12 轮工具调用，优先完成正式实现和必要验证。
+    【任务计划】
+    1. 对任何编码、修改、诊断或运行任务，第一次工具调用必须是 `todo_write`。
+    2. todo 步骤必须可验证；用 depends_on 声明前后依赖。无依赖且不会修改同一资源的步骤标记 parallelizable=true。
+    3. 完成步骤后再次调用 `todo_write` 更新完整列表，不要遗漏未完成项。
+
+    【Git Bash】
+    1. 所有文件创建、修改、删除、搜索、构建和测试都使用 `bash_exec`；旧的写入工具已被移除。
+    2. 一次调用可提交完整脚本，例如先写入文件和测试，再运行测试，减少工具轮次。
+    3. 命令行状态在同一会话内保留。仅在确实需要隔离时设置 parallel=true。
+    4. 每个 bash_exec 必须提供当前 todo_id。同一轮中依赖已满足、彼此独立的步骤可设置
+       parallel=true 并行执行；同一个 todo 的多个命令仍按顺序执行。
+    5. `rm`、Git 破坏性命令、代码执行、网络访问、workspace 外路径会触发审批；不要试图用变量、别名或解释器绕过风险检查。
+
+    【执行规则】
+    1. 每个请求最多 {settings.MAX_TOOL_ROUNDS} 轮工具调用。
+    2. 不得重复执行完全相同的工具参数；同一指纹重复会触发死循环保护。
     3. 只有拿到工具结果后才给出最终答复。
+    4. 测试必须实际调用被测逻辑，不要创建只输出固定成功文字的伪测试。
+    5. GUI 程序先做隐藏窗口冒烟测试，再使用 `bash_exec` 启动正式窗口一次。
 
-    【测试规则】
-    1. 允许主动编写测试脚本，不需要询问用户。测试是正常的验证工作，不属于多余调试。
-    2. 测试文件统一命名为 `test_<主模块>.py` 或 `tests/test_<主模块>.py`。
-       同一任务只创建一个测试文件，后续修复时修改并复用，不要创建 debug1.py、debug2.py 等散落文件。
-    3. 简单脚本优先直接运行验证；涉及输入校验、随机结果、边界条件或 GUI 交互时，应编写一个测试脚本。
-    4. GUI 测试必须使用隐藏窗口并快速退出：
-       创建窗口、验证控件和核心逻辑、调用一次 `update_idletasks()`，最后 `destroy()`。
-       测试脚本不要进入永久运行的 `mainloop()`。
-    5. 测试失败时修改现有测试或主程序后重新运行；测试通过后不要重复运行同一个测试。
-    6. 推荐控制在 12 轮内：
-       普通程序：写入主程序 → 写入测试 → 运行测试 → 修复或答复。
-       GUI 程序：写入主程序 → 写入测试 → 运行测试 → 启动 GUI → 简短答复。
-    7. 不要写一个只输出固定文字、固定数字或直接打印“验证成功”的脚本来冒充测试；
-       测试必须实际调用被测函数或 GUI 控件并检查结果。
-
-    【批量文件操作】
-    1. 需要读取多个文件时优先一次调用 `read_files`，不要逐文件发起多轮读取。
-    2. 新建两个及以上文件时必须一次调用 `write_files`，禁止连续多次调用 `write_file`。
-       只有单个文件的一处小修改使用 `edit_file`。
-    3. 同一文件多处修改，或需要同时修改代码、测试和 README 时，必须优先使用
-       `apply_edit_batch` 一次提交完整操作列表。
-    4. `apply_edit_batch` 会在后端统一校验路径、旧文本匹配、Python 语法和修改预算，
-       任何一项失败都不会写入部分结果。
-    5. 提交 batch 后立即运行测试；不要在没有验证时继续追加零散编辑。
-
-    【GUI 启动】
-    1. 隐藏窗口冒烟测试通过后，再使用 `run_file(mode="gui")` 启动正式窗口一次。
-    2. GUI 主程序不要传 `mode="script"`；不确定时省略 mode，让 `auto` 自动判断。
-    3. 收到 `gui_started` 后直接汇报完成，不要再启动或重复测试。
-
-    【工具结果处理】
-    - `completed`：当前这次脚本或测试运行成功。若正式 GUI 还没启动，继续完成剩余步骤；否则直接答复。
-    - `gui_started`：正式窗口已成功启动，任务成功，不要再修改或重复运行。
-    - `runtime_error`：根据错误定位并修复代码。
-    - `dependency_error` 或 `environment_error`：不要盲目修改业务代码，先处理依赖、导入路径或运行环境。
-    - `timeout`：检查死循环、阻塞调用或运行模式是否选择错误；GUI 正常存活不应视为超时。
-    - 不要复述思考过程、工具参数、工具返回全文或已经完成的操作清单。
+    【工具结果】
+    - `completed`：命令成功。
+    - `runtime_error`：根据 stderr 定位并修复。
+    - `timeout`、`session_lost`：缩小命令、避免交互式进程，并重新执行必要步骤。
+    - `rejected`、`permission_denied`：调整方案或说明受阻原因，不要绕过安全策略。
+    - `loop_detected`：立即停止重复调用并调整方案。
 
     【最终答复】
-    - 默认控制在 1 到 3 句话，最多 6 行。
-    - 只保留：完成了什么、关键文件路径、运行是否成功；失败时保留关键错误。
-    - 用户没有明确要求时，不要粘贴完整源码，不要逐行解释代码。
-    - 运行成功且用户没有要求查看输出时，只写“运行成功”，不要粘贴完整 stdout。
-    - 默认使用纯文本，不要使用 Markdown 加粗、标题或代码围栏。
-    - 只有用户明确要求时，才提供完整代码、详细解释或完整日志。
+    - 默认 1 到 3 句话，最多 6 行。
+    - 只保留完成内容、关键文件路径、验证结果；失败时保留关键错误。
+    - 不粘贴完整源码、思考过程或完整日志。
     """
     if memories:
         mem_text = "\n".join(f"- [{m['type']}] {m['content']}" for m in memories)
@@ -173,6 +157,7 @@ async def agent_node(state: AgentState, writer: StreamWriter) -> dict:
 
     full_content = ""
     tool_calls = []
+    llm_failed = False
 
     try:
         async for event in chat_stream_async(
@@ -194,6 +179,7 @@ async def agent_node(state: AgentState, writer: StreamWriter) -> dict:
     except Exception as exc:
         logger.error("模型调用异常: %s", exc)
         writer({"type": "error", "content": str(exc)})
+        llm_failed = True
 
     ai_msg = AIMessage(content=full_content)
 
@@ -205,7 +191,10 @@ async def agent_node(state: AgentState, writer: StreamWriter) -> dict:
                 if not isinstance(args, str): tc["function"]["arguments"] = json.dumps(args)
         ai_msg.tool_calls = tool_calls
 
-    return {"messages": [ai_msg]}
+    update: dict = {"messages": [ai_msg]}
+    if llm_failed:
+        update["termination_reason"] = "llm_error"
+    return update
 
 
 async def tool_limit(state: AgentState, writer: StreamWriter) -> dict:
@@ -214,116 +203,308 @@ async def tool_limit(state: AgentState, writer: StreamWriter) -> dict:
         "请缩小任务范围后继续，或检查运行环境是否阻止了验证。"
     )
     writer({"type": "limit", "content": content})
-    return {"messages": [AIMessage(content=content)]}
+    return {
+        "messages": [AIMessage(content=content)],
+        "termination_reason": state.get("termination_reason") or "tool_limit",
+    }
+
+
+def _normalize_tool_call(tool_call) -> tuple[str, str, str, dict]:
+    if isinstance(tool_call, dict):
+        func_info = tool_call.get("function", {})
+        name = str(func_info.get("name") or "")
+        raw_args = func_info.get("arguments")
+        tool_id = str(tool_call.get("id") or "")
+    else:
+        name = str(getattr(tool_call, "name", "") or "")
+        raw_args = getattr(tool_call, "args", "{}")
+        tool_id = str(getattr(tool_call, "id", "") or "")
+
+    if isinstance(raw_args, dict):
+        arguments = json.dumps(raw_args, ensure_ascii=False, sort_keys=True)
+        parsed = raw_args
+    else:
+        arguments = str(raw_args) if raw_args else "{}"
+        try:
+            parsed = json.loads(arguments)
+        except json.JSONDecodeError:
+            parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    return name, arguments, tool_id or f"call_{uuid.uuid4().hex[:8]}", parsed
+
+
+def _tool_signature(name: str, arguments: str) -> str:
+    try:
+        parsed = json.loads(arguments)
+        if name == "bash_exec" and isinstance(parsed, dict):
+            parsed.pop("todo_id", None)
+        canonical = json.dumps(
+            parsed,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, json.JSONDecodeError):
+        canonical = arguments
+    return hashlib.sha256(f"{name}\0{canonical}".encode("utf-8")).hexdigest()
+
+
+def _parallel_safe_call(name: str, args: dict, todos: dict[str, dict]) -> bool:
+    if name in {"read_file", "read_files", "list_files", "grep_content", "analyze_code"}:
+        return True
+    if name != "bash_exec" or not bool(args.get("parallel")):
+        return False
+    todo_id = str(args.get("todo_id") or "")
+    todo = todos.get(todo_id)
+    if not todo or not bool(todo.get("parallelizable")):
+        return False
+    if any(
+        todos.get(dependency, {}).get("status") != "completed"
+        for dependency in todo.get("depends_on", [])
+    ):
+        return False
+    command = str(args.get("command") or "")
+    if not command:
+        return False
+    workspace = get_workspace_dir().resolve()
+    raw_cwd = str(args.get("cwd") or "")
+    task_cwd = (workspace / raw_cwd).resolve() if raw_cwd else workspace
+    if not task_cwd.is_relative_to(workspace):
+        return False
+    assessment = assess_bash_command(command, task_cwd, workspace)
+    return (
+        not assessment.blocked
+        and not assessment.needs_approval
+        and assessment.risk_level in {"low", "medium"}
+    )
+
+
+def _extract_todo_items(result: str) -> list[dict]:
+    try:
+        payload = json.loads(result)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if payload.get("status") != "updated":
+        return []
+    items = payload.get("items")
+    return items if isinstance(items, list) else []
 
 
 async def tools_node(state: AgentState) -> dict:
     messages = state["messages"]
     last_msg = messages[-1]
-
-    tool_calls = getattr(last_msg, "tool_calls", None)
+    tool_calls = getattr(last_msg, "tool_calls", None) or []
+    next_round = int(state.get("tool_rounds", 0)) + 1
     if not tool_calls:
+        return {"messages": [], "tool_rounds": next_round}
+
+    normalized = [_normalize_tool_call(tool_call) for tool_call in tool_calls]
+    current_todos = list(state.get("todos", []))
+
+    if not current_todos and not any(name == "todo_write" for name, *_ in normalized):
+        reminder = json.dumps(
+            {
+                "status": "plan_required",
+                "error_code": "TODO_REQUIRED",
+                "message": "开始执行前必须先调用 todo_write 创建任务步骤。",
+            },
+            ensure_ascii=False,
+        )
+        results = [
+            ToolMessage(
+                content=reminder,
+                tool_call_id=tool_id,
+                name=name or "unknown",
+            )
+            for name, _arguments, tool_id, _args in normalized
+        ]
         return {
-            "messages": [],
-            "edit_batches": int(state.get("edit_batches", 0)),
-            "edit_operations": int(state.get("edit_operations", 0)),
-            "edited_files": list(state.get("edited_files", [])),
+            "messages": results,
+            "tool_rounds": next_round,
+            "termination_reason": "todo_required",
         }
 
-    next_round = int(state.get("tool_rounds", 0)) + 1
-    edit_batches = int(state.get("edit_batches", 0))
-    edit_operations = int(state.get("edit_operations", 0))
-    edited_files = set(state.get("edited_files", []))
-    results = []
-    with tool_session(state["session_id"]):
-        for tc in tool_calls:
-            if isinstance(tc, dict):
-                func_info = tc.get("function", {})
-                tool_name = func_info.get("name")
-                tool_args = func_info.get("arguments")
-                tool_id = tc.get("id")
-            else:
-                tool_name = getattr(tc, "name", None)
-                tool_args = getattr(tc, "args", "{}")
-                tool_id = getattr(tc, "id", "")
+    previous_signatures = list(state.get("recent_tool_signatures", []))
+    signature_counts: dict[str, int] = {}
+    for signature in previous_signatures:
+        signature_counts[signature] = signature_counts.get(signature, 0) + 1
 
-            if not tool_name:
+    signatures: list[str] = []
+    loop_indices: set[int] = set()
+    dependency_indices: set[int] = set()
+    threshold = max(2, settings.LOOP_REPEAT_THRESHOLD)
+    for index, (name, arguments, _tool_id, _args) in enumerate(normalized):
+        signature = _tool_signature(name, arguments)
+        signatures.append(signature)
+        signature_counts[signature] = signature_counts.get(signature, 0) + 1
+        if signature_counts[signature] >= threshold:
+            loop_indices.add(index)
+
+    results: list[ToolMessage | None] = [None] * len(normalized)
+    todo_map = {
+        str(item.get("id")): item
+        for item in current_todos
+        if isinstance(item, dict) and item.get("id")
+    }
+    for index, (name, _arguments, tool_id, args) in enumerate(normalized):
+        if index in loop_indices or name != "bash_exec":
+            continue
+        todo_id = str(args.get("todo_id") or "")
+        todo = todo_map.get(todo_id)
+        missing = [
+            dependency
+            for dependency in (todo or {}).get("depends_on", [])
+            if todo_map.get(dependency, {}).get("status") != "completed"
+        ]
+        if not todo_id or todo is None:
+            reason = "bash_exec 必须提供有效的 todo_id，先更新 todo_list。"
+        elif missing:
+            reason = f"依赖步骤尚未完成: {', '.join(missing)}"
+        else:
+            continue
+        dependency_indices.add(index)
+        payload = json.dumps(
+            {
+                "status": "dependency_blocked",
+                "error_code": "TODO_DEPENDENCY_NOT_READY",
+                "message": reason,
+            },
+            ensure_ascii=False,
+        )
+        results[index] = ToolMessage(
+            content=payload,
+            tool_call_id=tool_id,
+            name=name,
+        )
+        record_tool_call(
+            name,
+            _arguments,
+            status="error",
+            error_code="TODO_DEPENDENCY_NOT_READY",
+        )
+
+    for index in sorted(loop_indices):
+        name, arguments, tool_id, _args = normalized[index]
+        payload = json.dumps(
+            {
+                "status": "loop_detected",
+                "error_code": "LOOP_DETECTED",
+                "message": (
+                    f"相同工具调用已达到 {threshold} 次，已阻止继续执行。"
+                    "请修改参数、改用其他工具或结束任务。"
+                ),
+            },
+            ensure_ascii=False,
+        )
+        results[index] = ToolMessage(
+            content=payload,
+            tool_call_id=tool_id,
+            name=name,
+        )
+        record_tool_call(
+            name,
+            arguments,
+            status="error",
+            error_code="LOOP_DETECTED",
+        )
+
+    async def execute_one(index: int) -> None:
+        name, arguments, tool_id, _args = normalized[index]
+        if results[index] is not None:
+            return
+        logger.info("执行工具: %s, 参数: %s", name, arguments)
+        result = await registry.execute(name, arguments)
+        results[index] = ToolMessage(
+            content=str(result),
+            tool_call_id=tool_id,
+            name=name or "unknown",
+        )
+
+    todo_call_counts: dict[str, int] = {}
+    for name, _arguments, _tool_id, args in normalized:
+        if name == "bash_exec":
+            todo_id = str(args.get("todo_id") or "")
+            if todo_id:
+                todo_call_counts[todo_id] = todo_call_counts.get(todo_id, 0) + 1
+
+    parallel_indices = [
+        index
+        for index, (name, _arguments, _tool_id, args) in enumerate(normalized)
+        if (
+            index not in loop_indices
+            and index not in dependency_indices
+            and _parallel_safe_call(name, args, todo_map)
+            and (
+                name != "bash_exec"
+                or todo_call_counts.get(str(args.get("todo_id") or ""), 0) == 1
+            )
+        )
+    ]
+    with tool_session(state["session_id"]):
+        semaphore = asyncio.Semaphore(max(1, settings.MAX_PARALLEL_TOOLS))
+
+        async def run_parallel(index: int) -> None:
+            async with semaphore:
+                await execute_one(index)
+
+        index = 0
+        while index < len(normalized):
+            if index in loop_indices:
+                index += 1
+                continue
+            if index in dependency_indices:
+                index += 1
+                continue
+            if index not in parallel_indices:
+                await execute_one(index)
+                index += 1
                 continue
 
-            # 👇 终极兜底：如果没有 ID，生成一个
-            if not tool_id:
-                tool_id = f"call_{uuid.uuid4().hex[:8]}"
+            batch: list[int] = []
+            while index < len(normalized) and index in parallel_indices:
+                if index not in loop_indices:
+                    batch.append(index)
+                index += 1
+            if batch:
+                await asyncio.gather(*(run_parallel(item) for item in batch))
 
-            if isinstance(tool_args, dict):
-                tool_args_str = json.dumps(tool_args)
-            else:
-                tool_args_str = str(tool_args) if tool_args else "{}"
+    final_results = [result for result in results if result is not None]
+    for index, result in enumerate(results):
+        if result is None:
+            continue
+        name = normalized[index][0]
+        if name in {"todo_write", "todo_read"}:
+            items = _extract_todo_items(str(result.content))
+            if items:
+                current_todos = items
 
-            logger.info(f"执行工具: {tool_name}, 参数: {tool_args_str}")
-            if tool_name in {"apply_edit_batch", "write_files"}:
-                if edit_batches >= settings.MAX_EDIT_BATCHES:
-                    result = json.dumps({
-                        "status": "rejected",
-                        "applied": False,
-                        "error": (
-                            f"当前请求已达到 {settings.MAX_EDIT_BATCHES} 次批量编辑上限"
-                        ),
-                    }, ensure_ascii=False)
-                else:
-                    edit_batches += 1
-                    try:
-                        operation_count, batch_files = describe_edit_batch(tool_args_str)
-                    except Exception:
-                        operation_count = 0
-                        batch_files = set()
-                    if (
-                        edit_operations + operation_count
-                        > settings.MAX_EDIT_OPERATIONS_PER_REQUEST
-                    ):
-                        result = json.dumps({
-                            "status": "rejected",
-                            "applied": False,
-                            "error": (
-                                "批量操作数将超过当前请求上限 "
-                                f"{settings.MAX_EDIT_OPERATIONS_PER_REQUEST}"
-                            ),
-                        }, ensure_ascii=False)
-                    elif (
-                        len(edited_files | batch_files)
-                        > settings.MAX_EDIT_FILES_PER_REQUEST
-                    ):
-                        result = json.dumps({
-                            "status": "rejected",
-                            "applied": False,
-                            "error": (
-                                "修改文件数将超过当前请求上限 "
-                                f"{settings.MAX_EDIT_FILES_PER_REQUEST}"
-                            ),
-                        }, ensure_ascii=False)
-                    else:
-                        result = await registry.execute(tool_name, tool_args_str)
-                        try:
-                            result_payload = json.loads(result)
-                        except Exception:
-                            result_payload = {}
-                        if result_payload.get("status") == "applied":
-                            edit_operations += operation_count
-                            edited_files.update(batch_files)
-            else:
-                result = await registry.execute(tool_name, tool_args_str)
-
-            results.append(ToolMessage(
-                content=str(result),
-                tool_call_id=str(tool_id),
-                name=str(tool_name)
-            ))
+    current_loop = bool(loop_indices)
+    loop_detected = current_loop or bool(state.get("loop_detected", False))
+    recovery_count = int(state.get("loop_recovery_count", 0))
+    termination_reason = ""
+    if current_loop:
+        record_alert(
+            "AGENT_LOOP_DETECTED",
+            "critical",
+            "相同工具调用指纹触发死循环保护。",
+            float(len(loop_indices)),
+            float(threshold),
+        )
+        if recovery_count < 1:
+            recovery_count += 1
+            termination_reason = "loop_recovery"
+        else:
+            termination_reason = "loop_detected"
 
     return {
-        "messages": results,
+        "messages": final_results,
         "tool_rounds": next_round,
-        "edit_batches": edit_batches,
-        "edit_operations": edit_operations,
-        "edited_files": sorted(edited_files),
+        "todos": current_todos,
+        "recent_tool_signatures": (previous_signatures + signatures)[-50:],
+        "loop_detected": loop_detected,
+        "loop_recovery_count": recovery_count,
+        "termination_reason": termination_reason,
     }
 
 

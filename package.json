@@ -1,15 +1,16 @@
 {
   "name": "coding-agent",
-  "version": "1.1.0",
-  "description": "一个能自己写代码、运行、迭代的 AI 编程助手。基于 LangGraph 的 ReAct 主循环，支持工具调用、Human-in-the-Loop 审批、长期记忆与流式输出。",
+  "version": "1.2.0",
+  "description": "面向本地开发者的可治理 AI 编程助手：todo 依赖图、持久 Git Bash、分级审批、循环保护、成本预算和可观测指标。",
   "main": "electron/main.js",
   "directories": {
     "test": "tests"
   },
   "scripts": {
     "start": "electron .",
-    "build:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build:desktop": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
+    "test": "pwsh -NoProfile -Command \"$env:PYTHONPATH='src'; .\\.venv\\Scripts\\python.exe -m unittest tests.test_v12 tests.test_tools -v\"",
+    "benchmark": "pwsh -NoProfile -Command \"$env:PYTHONPATH='src'; $env:LANGSMITH_TRACING='false'; .\\.venv\\Scripts\\python.exe evals\\benchmark.py --repetitions 3\""
   },
   "keywords": [],
   "author": "",

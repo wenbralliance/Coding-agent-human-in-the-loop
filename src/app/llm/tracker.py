@@ -1,4 +1,5 @@
 from app.db.connection import db_session
+from app.observability import get_run_context
 
 
 def record_llm_call(
@@ -20,10 +21,20 @@ def record_llm_call(
         session_id: 归属的会话 ID
         cost_usd: 成本（如果暂时没算，可以传 0）
     """
+    context = get_run_context()
     with db_session() as db:
         db.execute(
             """INSERT INTO llm_calls 
-               (session_id, call_type, model, input_tokens, output_tokens, cost_usd) 
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (session_id, call_type, model, input_tokens, output_tokens, cost_usd)
+               (run_id, session_id, call_type, model, input_tokens,
+                output_tokens, cost_usd)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                context.run_id if context else None,
+                session_id,
+                call_type,
+                model,
+                input_tokens,
+                output_tokens,
+                cost_usd,
+            )
         )

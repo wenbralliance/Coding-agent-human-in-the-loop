@@ -445,10 +445,18 @@
             region.hidden = false;
             document.getElementById('approval-session').textContent =
                 `会话「${getSessionTitle(sessionId)}」`;
-            document.getElementById('approval-action-label').textContent =
-                data.mode === 'gui' ? 'Agent 请求启动窗口程序：' : 'Agent 请求运行脚本：';
-            document.getElementById('approval-filename').textContent = data.filename || '未知文件';
-            document.getElementById('approval-code').textContent = data.code || '（没有可预览的代码）';
+            const isBash = data.type === 'bash';
+            document.getElementById('approval-action-label').textContent = isBash
+                ? 'Agent 请求执行 Bash 命令：'
+                : (data.mode === 'gui' ? 'Agent 请求启动窗口程序：' : 'Agent 请求运行脚本：');
+            document.getElementById('approval-filename').textContent =
+                (isBash ? data.cwd : data.filename) || '未知目标';
+            const findings = Array.isArray(data.findings)
+                ? data.findings.map(item => `- ${item.message}`).join('\n')
+                : '';
+            document.getElementById('approval-code').textContent = isBash
+                ? `${data.command || '（没有可预览的命令）'}\n\n风险等级：${data.risk_level || 'unknown'}${findings ? `\n${findings}` : ''}`
+                : (data.code || '（没有可预览的代码）');
         }
 
         function renderSessionList() {

@@ -65,6 +65,7 @@ def create_all_tables(db: sqlite3.Connection) -> None:
         -- Token 追踪表
         CREATE TABLE IF NOT EXISTS llm_calls (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id          TEXT,
             session_id      TEXT,
             call_type       TEXT NOT NULL,    -- main / extract / embed
             model           TEXT NOT NULL,
@@ -73,7 +74,92 @@ def create_all_tables(db: sqlite3.Connection) -> None:
             cost_usd        REAL DEFAULT 0,
             created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        -- 单次 Agent 任务运行指标
+        CREATE TABLE IF NOT EXISTS task_runs (
+            id                  TEXT PRIMARY KEY,
+            session_id          TEXT NOT NULL,
+            workflow_version    TEXT NOT NULL,
+            status              TEXT NOT NULL,
+            termination_reason  TEXT,
+            user_input_chars    INTEGER DEFAULT 0,
+            tool_rounds         INTEGER DEFAULT 0,
+            todo_total          INTEGER DEFAULT 0,
+            todo_completed      INTEGER DEFAULT 0,
+            loop_detected       INTEGER DEFAULT 0,
+            input_tokens        INTEGER DEFAULT 0,
+            output_tokens       INTEGER DEFAULT 0,
+            cost_usd            REAL DEFAULT 0,
+            duration_ms         INTEGER DEFAULT 0,
+            started_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+            finished_at         DATETIME
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_runs_session
+            ON task_runs(session_id, started_at);
+
+        -- 工具调用、审批和审计事件
+        CREATE TABLE IF NOT EXISTS tool_call_events (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id          TEXT,
+            session_id      TEXT,
+            tool_name       TEXT NOT NULL,
+            args_hash       TEXT NOT NULL,
+            attempt         INTEGER DEFAULT 1,
+            status          TEXT NOT NULL,
+            error_code      TEXT,
+            duration_ms     INTEGER DEFAULT 0,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_events_created
+            ON tool_call_events(created_at);
+
+        CREATE TABLE IF NOT EXISTS approval_events (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            approval_id     TEXT NOT NULL,
+            session_id      TEXT,
+            run_id          TEXT,
+            tool_name       TEXT NOT NULL,
+            action_hash     TEXT NOT NULL,
+            risk_level      TEXT NOT NULL,
+            decision        TEXT NOT NULL,
+            wait_seconds    REAL DEFAULT 0,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+            decided_at      DATETIME
+        );
+        CREATE INDEX IF NOT EXISTS idx_approval_events_id
+            ON approval_events(approval_id);
+
+        CREATE TABLE IF NOT EXISTS audit_events (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id          TEXT,
+            session_id      TEXT,
+            actor           TEXT NOT NULL,
+            action          TEXT NOT NULL,
+            resource        TEXT,
+            decision        TEXT NOT NULL,
+            detail_json     TEXT,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS alert_events (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            code            TEXT NOT NULL,
+            severity        TEXT NOT NULL,
+            message         TEXT NOT NULL,
+            value           REAL,
+            threshold       REAL,
+            session_id      TEXT,
+            acknowledged    INTEGER DEFAULT 0,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     """)
+
+    # Lightweight migration for databases created by v1.1.
+    llm_columns = {
+        row[1] for row in db.execute("PRAGMA table_info(llm_calls)").fetchall()
+    }
+    if "run_id" not in llm_columns:
+        db.execute("ALTER TABLE llm_calls ADD COLUMN run_id TEXT")
 
     # ============================================================
     # 2. FTS5 全文检索虚拟表（用于混合检索）

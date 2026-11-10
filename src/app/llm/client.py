@@ -9,6 +9,7 @@ from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
 from app.config import settings
+from app.llm.budget import BudgetExceededError, choose_model, enforce_budget
 from app.llm.resilience import (
     CircuitOpenError,
     get_llm_breaker,
@@ -40,9 +41,15 @@ def _headers() -> dict[str, str]:
     }
 
 
-def _payload(messages: list[dict], tools: list[dict] | None, *, stream: bool) -> dict:
+def _payload(
+    messages: list[dict],
+    tools: list[dict] | None,
+    *,
+    stream: bool,
+    model: str,
+) -> dict:
     payload: dict[str, Any] = {
-        "model": settings.LLM_MODEL,
+        "model": model,
         "messages": messages,
         "temperature": settings.LLM_TEMPERATURE,
         "max_tokens": settings.LLM_MAX_TOKENS,
@@ -100,7 +107,11 @@ def _build_usage_metadata(usage: dict) -> dict:
     return metadata
 
 
-def _attach_langsmith_metadata(usage_metadata: dict | None = None) -> None:
+def _attach_langsmith_metadata(
+    usage_metadata: dict | None = None,
+    *,
+    model_name: str | None = None,
+) -> None:
     try:
         run_tree = get_current_run_tree()
         if run_tree is None:
@@ -108,7 +119,7 @@ def _attach_langsmith_metadata(usage_metadata: dict | None = None) -> None:
         if getattr(run_tree, "run_type", None) != "llm":
             return
         run_tree.metadata["ls_provider"] = settings.LLM_PROVIDER
-        run_tree.metadata["ls_model_name"] = settings.LLM_MODEL
+        run_tree.metadata["ls_model_name"] = model_name or settings.LLM_MODEL
         if usage_metadata:
             run_tree.metadata["usage_metadata"] = usage_metadata
     except Exception:
@@ -120,14 +131,17 @@ def _record_usage(
     session_id: str | None,
     call_type: str,
     usage: dict,
+    model: str,
+    usage_metadata: dict,
 ) -> None:
     try:
         record_llm_call(
             call_type=call_type,
-            model=settings.LLM_MODEL,
+            model=model,
             input_tokens=usage.get("input_tokens", 0),
             output_tokens=usage.get("output_tokens", 0),
             session_id=session_id,
+            cost_usd=float(usage_metadata.get("total_cost", 0.0) or 0.0),
         )
     except Exception as exc:
         logger.warning("记录 LLM Token 使用失败: %s", exc)
@@ -159,12 +173,19 @@ async def chat_async(
     *,
     session_id: str | None = None,
     call_type: str = "main",
+    _force_model: str | None = None,
 ) -> dict:
     """异步非流式 LLM 调用，包含重试、熔断和 LangSmith 追踪。"""
-    _attach_langsmith_metadata()
+    try:
+        model = _force_model or choose_model(session_id, settings.LLM_MODEL)
+        if _force_model:
+            enforce_budget(session_id)
+    except BudgetExceededError as exc:
+        raise LLMError(str(exc)) from exc
+    _attach_langsmith_metadata(model_name=model)
     url = f"{settings.LLM_BASE_URL.rstrip('/')}/chat/completions"
-    payload = _payload(messages, tools, stream=False)
-    breaker = get_llm_breaker()
+    payload = _payload(messages, tools, stream=False, model=model)
+    breaker = get_llm_breaker(model)
     max_retries = max(0, settings.LLM_MAX_RETRIES)
     last_error: Exception | None = None
 
@@ -188,11 +209,13 @@ async def chat_async(
                 breaker.record_success()
                 usage = _extract_usage(data.get("usage", {}))
                 usage_metadata = _build_usage_metadata(usage)
-                _attach_langsmith_metadata(usage_metadata)
+                _attach_langsmith_metadata(usage_metadata, model_name=model)
                 _record_usage(
                     session_id=session_id,
                     call_type=call_type,
                     usage=usage,
+                    model=model,
+                    usage_metadata=usage_metadata,
                 )
                 return {
                     "content": message.get("content") or "",
@@ -210,6 +233,16 @@ async def chat_async(
             raise LLMError(error_text)
 
         except CircuitOpenError as exc:
+            fallback = settings.LLM_FALLBACK_MODEL.strip()
+            if fallback and fallback != model:
+                logger.warning("模型 %s 已熔断，降级到 %s", model, fallback)
+                return await chat_async(
+                    messages,
+                    tools,
+                    session_id=session_id,
+                    call_type=call_type,
+                    _force_model=fallback,
+                )
             raise LLMError(str(exc)) from exc
         except RetryableLLMError as exc:
             last_error = exc
@@ -238,6 +271,16 @@ async def chat_async(
         if attempt < max_retries:
             await asyncio.sleep(settings.LLM_RETRY_BACKOFF * (2 ** attempt))
 
+    fallback = settings.LLM_FALLBACK_MODEL.strip()
+    if fallback and fallback != model:
+        logger.warning("主模型 %s 调用失败，降级到 %s", model, fallback)
+        return await chat_async(
+            messages,
+            tools,
+            session_id=session_id,
+            call_type=call_type,
+            _force_model=fallback,
+        )
     raise LLMError(
         f"LLM 调用失败，已达最大重试次数 ({max_retries})。最后错误: {last_error}"
     )
@@ -305,6 +348,7 @@ async def chat_stream_async(
     *,
     session_id: str | None = None,
     call_type: str = "main",
+    _force_model: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
     异步流式调用 LLM。
@@ -314,10 +358,17 @@ async def chat_stream_async(
       - {"type": "done", "content": "...", "tool_calls": [...], "usage": {...}}
       - {"type": "error", "message": "..."}
     """
-    _attach_langsmith_metadata()
+    try:
+        model = _force_model or choose_model(session_id, settings.LLM_MODEL)
+        if _force_model:
+            enforce_budget(session_id)
+    except BudgetExceededError as exc:
+        yield {"type": "error", "message": str(exc)}
+        return
+    _attach_langsmith_metadata(model_name=model)
     url = f"{settings.LLM_BASE_URL.rstrip('/')}/chat/completions"
-    payload = _payload(messages, tools, stream=True)
-    breaker = get_llm_breaker()
+    payload = _payload(messages, tools, stream=True, model=model)
+    breaker = get_llm_breaker(model)
     max_retries = max(0, settings.LLM_MAX_RETRIES)
     last_error: Exception | None = None
 
@@ -391,11 +442,13 @@ async def chat_stream_async(
 
                     usage = _extract_usage(usage_data)
                     usage_metadata = _build_usage_metadata(usage)
-                    _attach_langsmith_metadata(usage_metadata)
+                    _attach_langsmith_metadata(usage_metadata, model_name=model)
                     _record_usage(
                         session_id=session_id,
                         call_type=call_type,
                         usage=usage,
+                        model=model,
+                        usage_metadata=usage_metadata,
                     )
                     yield {
                         "type": "done",
@@ -407,6 +460,18 @@ async def chat_stream_async(
                     return
 
         except CircuitOpenError as exc:
+            fallback = settings.LLM_FALLBACK_MODEL.strip()
+            if fallback and fallback != model:
+                logger.warning("模型 %s 已熔断，流式降级到 %s", model, fallback)
+                async for chunk in chat_stream_async(
+                    messages,
+                    tools,
+                    session_id=session_id,
+                    call_type=call_type,
+                    _force_model=fallback,
+                ):
+                    yield chunk
+                return
             yield {"type": "error", "message": str(exc)}
             return
         except RetryableLLMError as exc:
@@ -420,6 +485,15 @@ async def chat_stream_async(
         except httpx.RequestError as exc:
             last_error = exc
             breaker.record_failure()
+            if started_streaming:
+                yield {
+                    "type": "error",
+                    "message": (
+                        "LLM 流式响应在输出过程中中断，已停止自动重试以避免重复内容。"
+                        f"最后错误: {exc}"
+                    ),
+                }
+                return
             logger.warning(
                 "LLM 流式网络请求失败 (尝试 %s/%s): %s",
                 attempt + 1,
@@ -436,6 +510,18 @@ async def chat_stream_async(
         if attempt < max_retries:
             await asyncio.sleep(settings.LLM_RETRY_BACKOFF * (2 ** attempt))
 
+    fallback = settings.LLM_FALLBACK_MODEL.strip()
+    if fallback and fallback != model:
+        logger.warning("主模型 %s 流式调用失败，降级到 %s", model, fallback)
+        async for chunk in chat_stream_async(
+            messages,
+            tools,
+            session_id=session_id,
+            call_type=call_type,
+            _force_model=fallback,
+        ):
+            yield chunk
+        return
     yield {
         "type": "error",
         "message": (

@@ -83,12 +83,12 @@ _breakers: dict[str, CircuitBreaker] = {}
 _breakers_lock = threading.Lock()
 
 
-def current_llm_key() -> str:
-    return f"{settings.LLM_BASE_URL.rstrip('/')}|{settings.LLM_MODEL}"
+def current_llm_key(model: str | None = None) -> str:
+    return f"{settings.LLM_BASE_URL.rstrip('/')}|{model or settings.LLM_MODEL}"
 
 
-def get_llm_breaker() -> CircuitBreaker:
-    key = current_llm_key()
+def get_llm_breaker(model: str | None = None) -> CircuitBreaker:
+    key = current_llm_key(model)
     with _breakers_lock:
         breaker = _breakers.get(key)
         if breaker is None:
@@ -100,8 +100,8 @@ def get_llm_breaker() -> CircuitBreaker:
         return breaker
 
 
-def get_llm_circuit_snapshot() -> dict:
-    snapshot = get_llm_breaker().snapshot()
+def get_llm_circuit_snapshot(model: str | None = None) -> dict:
+    snapshot = get_llm_breaker(model).snapshot()
     return {
         "state": snapshot.state,
         "failures": snapshot.failures,

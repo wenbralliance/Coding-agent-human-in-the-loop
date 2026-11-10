@@ -1,45 +1,48 @@
 # Coding Agent
 
-一个面向本地开发场景的 AI 编程助手。用户用自然语言描述需求，Agent 可以创建和修改代码、运行程序、读取错误并继续迭代，同时通过 Human-in-the-Loop 审批控制危险操作。
+一个面向本地开发者的可治理 Coding Agent 桌面应用。用户用自然语言描述需求，Agent 通过 todo 依赖图规划任务、持久 Git Bash 批量读写代码、运行测试并继续迭代，同时对高风险命令执行能力鉴权、人工审批、重试、熔断、审计和成本控制。
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-SSE-009688?logo=fastapi&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/Agent-LangGraph-1C3C3C)
 ![Electron](https://img.shields.io/badge/Desktop-Electron-47848F?logo=electron&logoColor=white)
 ![Platform](https://img.shields.io/badge/Desktop-Windows-0078D4)
-![Version](https://img.shields.io/badge/Version-1.1.0-brightgreen)
+![Version](https://img.shields.io/badge/Version-1.2.0-brightgreen)
 
 > 个人项目，仍在持续迭代。当前桌面版优先支持 Windows。
 
 ## 版本信息
 
-**当前版本：v1.1.0 — Workflow Forge（工作流锻造版）**  
-发布日期：2026-10-26
+**当前版本：v1.2.0 — Guarded Runtime（可治理运行时）**
+发布日期：2026-11-10
+发布分支：`codex/release-v1.2.0-guarded-runtime`
+Git 标签：`v1.2.0`
 
-Workflow Forge 聚焦于把 Coding Agent 从“单次工具调用原型”升级为可恢复、可观测、可批量修改并可直接分发的桌面级 Agent。
+Guarded Runtime 聚焦于把 Coding Agent 从“能执行工具的原型”升级为有任务计划、有权限边界、有故障恢复、有成本上限并能生成量化评测证据的本地运行时。
 
-### v1.0.0 → v1.1.0
+### v1.1.0 → v1.2.0
 
-| 能力 | v1.0.0 | v1.1.0 Workflow Forge |
+| 能力 | v1.1.0 | v1.2.0 Guarded Runtime |
 |---|---|---|
-| 模型输出 | 非流式，完整结果一次返回 | 主 Agent 原生 Token 增量流式输出 |
-| 容错 | 基础网络重试 | 指数退避重试 + 连续失败熔断 + 半开探测 |
-| 可观测性 | 普通后端日志 | 可选 LangSmith Graph/LLM/Tool Trace、Token 与成本 |
-| 人工审批 | 全屏模态弹窗 | 会话级非阻塞审批、多会话状态和待审批标记 |
-| 文件读取 | 单文件读取 | `read_files` 批量读取及 SHA256 |
-| 文件修改 | `edit_file` 单处替换 | `apply_edit_batch` 事务化多文件修改与回滚 |
-| 文件创建 | 每次一个 `write_file` | `write_files` 一次创建多个完整文件 |
-| 执行控制 | 普通脚本超时判断 | 脚本/GUI 自动识别、结构化状态和进程清理 |
-| 会话 | 打开即创建空会话 | 首次发送才创建，失败自动回滚 |
-| 交付 | 基础 Electron 开发壳 | 自包含 Python/Tkinter Windows 便携版 |
+| 任务规划 | 隐式 ReAct 循环 | `todo_write` 依赖图、拓扑波次和状态更新 |
+| 文件修改 | 多个结构化写工具 | 持久 Git Bash，一次调用完成多步脚本 |
+| 并行 | 工具顺序执行 | 无依赖 todo 可标记 `parallel=true` 并行 |
+| 安全 | `run_file` 前审批 | Bash 风险分级、操作哈希审批、提权阻断和审计 |
+| 容错 | LLM 重试与熔断 | LLM/工具分类重试、循环指纹和会话恢复 |
+| 运行治理 | 无全局并发限制 | 全局任务配额、会话互斥、Shell 空闲回收 |
+| 成本 | 事后 Token 统计 | 会话 Token/日成本预算、80% 降级和 100% 安全停止 |
+| 可观测性 | 可选 LangSmith | 本地任务/工具/审批/告警表、`/api/metrics` 和 JSONL 事件 |
+| 发布 | 固定版本 | 会话哈希灰度、指标回滚门槛和模型回退链 |
+| 验证 | 手工集成脚本 | 自动化回归测试 + 两轮故障注入指标报告 |
 
-### v1.1.0 主要更新
+### v1.2.0 主要更新
 
-- 新增 `read_files`、`write_files` 和 `apply_edit_batch`，一次工具调用可处理多个文件。
-- 增加 12 轮 Agent 预算，以及独立的编辑批次、文件数和操作数限制。
-- 增加 LangSmith Run 的 Input/Output Token、缓存 Token 和可配置成本。
-- 增加 GitHub 仓库说明、界面截图和 Windows 桌面构建流程。
-- 修复长输入覆盖页面、失败请求遗留空会话、删除会话后自动重建等问题。
+- 移除 Agent 可调用的 `write_file`、`write_files`、`edit_file` 和 `apply_edit_batch`，统一通过 `bash_exec` 修改代码。
+- 新增持久 Git Bash 会话、输出协议、超时清理、脱敏环境和 workspace cwd 校验。
+- 新增 todo 依赖验证、拓扑波次、`todo_id` 依赖门禁和并行安全调用。
+- 新增 `rm`、Git 破坏性命令、代码执行、网络访问和 workspace 外路径的风险审批。
+- 新增重复工具指纹、最大轮次、全局并发、会话互斥、Token/成本预算、模型降级和灰度回滚。
+- 新增 `evals/report.md`：60 个任务、每组 3 次、共两轮 360 次运行的指标对比。
 
 ## 界面预览
 
@@ -66,18 +69,22 @@ Workflow Forge 聚焦于把 Coding Agent 从“单次工具调用原型”升级
 
 ## 功能特性
 
-- **ReAct 编程循环**：Agent 根据工具结果持续规划、修改和验证代码。
-- **文件操作**：创建、读取、编辑、列出和搜索 workspace 中的文件。
-- **代码执行**：在独立子进程中运行 Python 程序，返回结构化执行结果。
+- **计划式 ReAct 编程循环**：Agent 先用 `todo_write` 建立依赖图，再根据工具结果推进和更新任务。
+- **持久 Git Bash**：同一会话保留 cwd 和环境，一次调用可完成写入、搜索、测试和修复，减少重复工具往返。
+- **依赖感知并行**：依赖完成的独立 todo 可通过 `parallel=true` 使用隔离 Shell 并发执行。
+- **代码执行**：在独立子进程中运行 Python、测试和 Bash 命令，返回结构化状态、退出码和输出。
 - **Token 流式输出**：主 Agent 接入 OpenAI-compatible 流式接口，并将增量文本通过 SSE 实时推送到前端。
-- **重试与熔断**：对网络失败、429 和 5xx 执行指数退避重试，通过连续失败阈值开启冷却熔断，并在冷却结束后使用半开探测恢复。
+- **重试与熔断**：LLM 对网络失败、429 和 5xx 重试；幂等工具分类重试；模型按名称独立熔断并支持回退链。
 - **LangSmith 可观测性**：可选记录 LangGraph 图、LLM 调用和工具执行，查看耗时、Token 和嵌套调用链。
 - **GUI 程序支持**：自动识别 Tkinter、PyQt/PySide、wx、Pygame 等窗口程序；窗口成功启动后立即返回，不等待用户关闭。
-- **人工审批**：代码执行前暂停图状态，用户批准或拒绝后继续；审批信息按会话隔离。
+- **人工审批**：危险 Bash、代码执行和 `run_file` 前暂停图状态，用户批准或拒绝后继续；审批绑定命令和 cwd 哈希。
 - **非阻塞审批框**：审批面板位于输入框上方，不覆盖整个界面，不影响切换或管理其他会话。
 - **错误分类**：区分程序运行错误、依赖缺失、GUI 环境异常、启动失败和执行超时，减少无效修改。
-- **批量文件操作**：支持一次读取多个文件，以及事务化批量替换、完整写入和删除。
-- **工具调用上限**：默认最多执行 12 轮工具调用，并单独限制批量编辑次数和操作量。
+- **工具调用上限**：默认最多执行 12 轮工具调用；相同调用指纹达到阈值后立即阻断。
+- **运行治理**：全局并发任务数、单会话互斥、Bash 会话上限、空闲回收和进程树清理。
+- **成本治理**：会话 Token 和每日成本预算；达到 80% 切换降级模型，达到上限安全停止。
+- **结构化可观测性**：本地记录任务、工具、审批、审计和告警，暴露 `/api/metrics`。
+- **灰度与回滚**：按会话哈希进行稳定版本/灰度版本分配；成功率、崩溃率和循环率恶化时自动回退。
 - **长期记忆**：从对话中提取用户偏好、事实和事件，并通过 SQLite FTS5 + 向量检索召回。
 - **会话管理**：支持多会话、历史记录、会话删除和待审批状态提示。
 - **惰性会话创建**：空白新对话不落库，首次发送消息时才创建会话；首次请求失败会自动回滚空会话。
@@ -92,24 +99,28 @@ flowchart LR
     API --> G[LangGraph ReAct]
     G --> LLM[OpenAI-compatible LLM]
     G --> T[Tool Registry]
-    T --> F[Workspace 文件工具]
-    T --> R[代码运行器]
-    R --> A{人工审批}
-    A -->|批准| P[子进程 / GUI 进程]
+    G --> PLAN[todo_list 依赖图]
+    T --> B[持久 Git Bash]
+    T --> R[Python 代码运行器]
+    B --> A{风险与审批}
+    R --> A
+    A -->|批准| P[Shell / GUI / 子进程]
     A -->|拒绝| G
     P --> G
+    G --> O[指标 / 审计 / 告警]
     G --> M[长期记忆]
     M --> DB[(SQLite + sqlite-vec)]
+    O --> DB
 ```
 
 一次典型任务：
 
 1. 用户描述目标。
-2. Agent 使用 `write_files` 创建多个文件，或使用 `apply_edit_batch` 批量修改现有代码。
-3. Agent 调用 `run_file` 请求执行。
-4. 图在 `interrupt()` 处暂停，前端显示审批框。
-5. 用户批准后，代码在 workspace 子进程中运行。
-6. Agent 根据结构化结果修复代码或给出简短总结。
+2. Agent 调用 `todo_write`，声明步骤、依赖和可并行项。
+3. Agent 使用 `bash_exec` 在一次持久 Shell 脚本中写入代码、测试和进行验证。
+4. 非只读命令触发风险判断；高风险操作在 `interrupt()` 处暂停并显示审批框。
+5. 独立且依赖已满足的 todo 可使用 `parallel=true` 并行执行。
+6. Agent 根据结构化结果修复代码、更新 todo 并给出简短总结。
 
 ## 技术栈
 
@@ -122,13 +133,14 @@ flowchart LR
 | 数据库 | SQLite、FTS5、sqlite-vec |
 | 前端 | 原生 HTML / CSS / JavaScript |
 | 桌面端 | Electron |
-| 执行环境 | Python 子进程 |
+| 执行环境 | Git Bash + Python 子进程 |
 
 ## 快速开始
 
 ### 环境要求
 
 - Windows 10/11
+- Git for Windows（开发模式需在 `PATH` 中能找到 `bash.exe`；桌面版会内置）
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - Node.js 18+
@@ -192,6 +204,10 @@ EMBEDDING_API_KEY=your_embedding_api_key
 | `LLM_API_KEY` | 空 | LLM API Key |
 | `LLM_BASE_URL` | `https://api.deepseek.com` | Chat Completions API 地址 |
 | `LLM_MODEL` | `deepseek-chat` | 主模型 |
+| `LLM_FALLBACK_MODEL` | 空 | 熔断或预算阈值触发的降级模型 |
+| `LLM_SESSION_TOKEN_BUDGET` | `200000` | 单会话 24 小时 Token 预算 |
+| `LLM_DAILY_COST_BUDGET_USD` | `5.0` | 全球每日成本预算 |
+| `LLM_BUDGET_DEGRADE_RATIO` | `0.8` | 达到预算比例后切换降级模型 |
 | `LLM_INPUT_COST_PER_MILLION` | `0` | 每百万输入 Token 的成本（USD） |
 | `LLM_OUTPUT_COST_PER_MILLION` | `0` | 每百万输出 Token 的成本（USD） |
 | `LLM_CACHED_INPUT_COST_PER_MILLION` | `0` | 每百万缓存命中输入 Token 的成本（USD） |
@@ -203,11 +219,15 @@ EMBEDDING_API_KEY=your_embedding_api_key
 | `EMBEDDING_MODEL` | `text-embedding-v3` | Embedding 模型 |
 | `WORKSPACE_PATH` | `workspace` | Agent 文件工作区 |
 | `DB_PATH` | `data/coding_agent.db` | SQLite 数据库 |
+| `BASH_EXECUTABLE` | 空 | Git Bash 路径；留空自动检测或使用桌面版内置路径 |
+| `BASH_TIMEOUT` | `60` | 单次 Bash 调用最大秒数 |
+| `BASH_OUTPUT_MAX_BYTES` | `32000` | 每次 stdout/stderr 保留字节数 |
+| `BASH_SESSION_IDLE_SECONDS` | `600` | 持久 Shell 空闲回收时间 |
+| `MAX_BASH_SESSIONS` | `4` | 同时保留的持久 Shell 数 |
+| `MAX_PARALLEL_TOOLS` | `4` | 一组并行工具调用的最大并发数 |
+| `MAX_CONCURRENT_TASKS` | `2` | 全局并行 Agent 任务数 |
 | `MAX_TOOL_ROUNDS` | `12` | 单次用户请求的最大工具轮数 |
-| `MAX_EDIT_BATCHES` | `5` | 单次用户请求最多提交几次批量编辑 |
-| `MAX_EDIT_FILES_PER_REQUEST` | `50` | 单次请求最多修改的文件数 |
-| `MAX_EDIT_OPERATIONS_PER_REQUEST` | `200` | 单次请求最多执行的编辑操作数 |
-| `MAX_EDIT_BATCH_BYTES` | `1000000` | 单次批量编辑最大写入字节数 |
+| `LOOP_REPEAT_THRESHOLD` | `3` | 相同工具调用达到多少次后阻断 |
 | `MAX_READ_FILES` | `50` | 单次批量读取最大文件数 |
 | `MAX_READ_CHARS_PER_CALL` | `100000` | 单次批量读取最大字符数 |
 | `SANDBOX_TIMEOUT` | `10` | 普通脚本最长执行时间（秒） |
@@ -215,6 +235,9 @@ EMBEDDING_API_KEY=your_embedding_api_key
 | `TOOL_OUTPUT_MAX_CHARS` | `6000` | 工具输出最大保留字符数 |
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | 连续临时失败多少次后开启熔断 |
 | `CIRCUIT_BREAKER_COOLDOWN` | `60` | 熔断冷却时间（秒） |
+| `WORKFLOW_VERSION` | `v1.2.0-guarded` | 稳定工作流版本 |
+| `CANARY_VERSION` | 空 | 灰度版本标签，留空关闭 |
+| `CANARY_PERCENT` | `0` | 按会话哈希分配的灰度比例 |
 
 LLM、Embedding 和 LangSmith 配置也可以通过应用内的 Settings 面板修改。
 
@@ -233,12 +256,12 @@ LANGSMITH_PROJECT=coding-agent
 
 | 工具 | 作用 |
 |---|---|
-| `write_file` | 写入完整文件 |
+| `todo_write` | 创建或更新任务依赖图，返回拓扑执行波次 |
+| `todo_read` | 读取当前会话任务计划 |
+| `bash_exec` | 在持久 Git Bash 中执行批量脚本和代码修改 |
+| `bash_reset` | 关闭当前会话的持久 Shell |
 | `read_file` | 读取文件内容 |
 | `read_files` | 一次读取多个文件及 SHA256 |
-| `edit_file` | 按唯一文本片段替换文件内容 |
-| `apply_edit_batch` | 事务化批量修改多个文件，失败不落盘 |
-| `write_files` | 一次创建或覆盖多个完整文件 |
 | `list_files` | 列出 workspace 文件 |
 | `grep_content` | 搜索文件内容并返回匹配行 |
 | `run_file` | 运行 Python 脚本或 GUI 程序 |
@@ -266,14 +289,16 @@ LANGSMITH_PROJECT=coding-agent
 
 ## Human-in-the-Loop 审批
 
-`run_file` 执行前会调用 LangGraph `interrupt()`。审批信息包含：
+Bash 和 `run_file` 在命中风险策略后调用 LangGraph `interrupt()`。Bash 审批信息包含：
 
-- 会话 ID
-- 文件名
-- 待执行代码
-- 检测到的运行模式
+- 完整命令和 cwd
+- 风险等级与命中的规则
+- 绑定命令、cwd 和 workspace 的操作哈希
+- 审批有效期和会话隔离信息
 
-前端通过 `Command(resume=...)` 提交批准或拒绝结果。审批状态在当前后端进程运行期间按会话恢复；后端进程重启后，未完成的图中断不会保留。
+`rm`、`rmdir`、`find -delete`、`git clean/reset --hard`、解释器/测试执行、网络访问和 workspace 外路径会进入审批；管理员提权命令直接拒绝。前端通过 `Command(resume=...)` 提交批准或拒绝结果。
+
+审批状态在当前后端进程运行期间按会话恢复；审批和审计事件会持久化到 SQLite，但后端重启后未完成的 LangGraph 中断仍不会自动恢复。
 
 ## 长期记忆
 
@@ -306,8 +331,9 @@ dist/CodingAgent-Windows-x64.zip
 2. 放入 Electron 主进程和前端资源。
 3. 复制 Python 后端源码。
 4. 复制基础 Python、Tcl/Tk 和 `site-packages`。
-5. 移除指向开发机路径的 `.pth` 文件。
-6. 生成便携目录和 ZIP 压缩包。
+5. 复制自包含 Git Bash 运行时，并注入 `CODING_AGENT_BASH_EXECUTABLE`。
+6. 移除指向开发机路径的 `.pth` 文件。
+7. 生成便携目录和 ZIP 压缩包。
 
 桌面版的数据保存在：
 
@@ -330,6 +356,9 @@ dist/CodingAgent-Windows-x64.zip
 | `POST` | `/api/sessions` | 创建会话 |
 | `GET` | `/api/sessions/{id}/messages` | 获取历史消息 |
 | `GET` | `/api/sessions/{id}/approval` | 查询待审批状态 |
+| `GET` | `/api/metrics` | 获取本地任务、工具和告警聚合指标 |
+| `POST` | `/api/tasks/{id}/cancel` | 停止 Shell/进程并清理当前图检查点 |
+| `POST` | `/api/bash/{id}/reset` | 关闭会话的持久 Git Bash |
 | `DELETE` | `/api/sessions/{id}` | 删除会话及关联数据 |
 
 SSE 事件类型包括 `text`、`tool_end`、`interrupt`、`limit`、`error` 和 `done`。
@@ -344,19 +373,51 @@ SSE 事件类型包括 `text`、`tool_end`、`interrupt`、`limit`、`error` 和
 ├── src/app/
 │   ├── api/                    FastAPI、SSE、设置和前端页面
 │   ├── db/                     SQLite 连接与 schema
-│   ├── graph/                  LangGraph 节点、路由和状态
-│   ├── llm/                    LLM、Embedding 和调用记录
+│   ├── graph/                  LangGraph、todo 依赖图和循环保护
+│   ├── llm/                    LLM、预算、降级、熔断和调用记录
 │   ├── memory/                 长期记忆提取、检索和冲突消解
-│   └── tools/                  文件、运行器和工具注册表
+│   ├── runtime/                全局并发和会话容量管理
+│   ├── security.py             Bash 风险分级与审批哈希
+│   ├── observability.py        指标、审计、告警和事件日志
+│   └── tools/                  Git Bash、todo、文件读取和运行器
+├── evals/
+│   ├── benchmark.py            两轮故障注入基准
+│   ├── benchmark_report.json   原始指标与 360 条运行明细
+│   └── report.md               可直接阅读的指标报告
 ├── scripts/build-desktop.ps1   Windows 便携版构建脚本
 ├── packaging/                  桌面版说明与快捷方式脚本
-└── tests/                      手动集成检查脚本
+└── tests/                      自动化回归测试与历史集成脚本
 ```
+
+## 自动化测试与指标
+
+运行自动化回归测试：
+
+```powershell
+npm test
+```
+
+重新生成两轮指标报告：
+
+```powershell
+npm run benchmark
+```
+
+完整结果见 [evals/report.md](evals/report.md)。当前报告基于 60 个固定任务、每组重复 3 次，共执行两轮 360 次确定性故障注入流程，不调用真实 LLM，也不代表线上生产流量。核心对比：
+
+| 指标 | v1.1 baseline | v1.2 guarded |
+|---|---:|---:|
+| 任务成功率 | 51.7% | 85.0% |
+| 工具失败导致崩溃率 | 41.7% | 0.0% |
+| 未受控死循环占比 | 16.7% | 0.0% |
+| 瞬时故障恢复率 | 0.0% | 100.0% |
+| 高风险操作拦截率 | 0.0% | 100.0% |
 
 ## 安全说明
 
-- 代码执行前需要人工批准。
-- 子进程执行只是基础隔离，不等同于安全沙箱。
+- Bash 风险检查是策略层防护，不等同于操作系统安全沙箱。
+- 删除、Git 破坏性操作、代码执行、网络和非零风险命令需要审批；提权命令默认拒绝。
+- 子进程执行提供 cwd、环境变量白名单、超时、输出和进程树限制，但 Git Bash 仍继承当前 Windows 用户权限。
 - 不要在不可信代码或敏感数据环境中把审批机制当作完整安全边界。
 - 如需运行不可信代码，建议进一步接入容器、虚拟机或受限系统账户。
 - API Key 只应保存在本地 `.env` 或桌面版用户数据目录，不要提交到 Git。
@@ -365,8 +426,9 @@ SSE 事件类型包括 `text`、`tool_end`、`interrupt`、`limit`、`error` 和
 
 - 当前桌面构建主要面向 Windows，尚未提供签名安装器。
 - LangGraph 使用 `MemorySaver`，未完成的审批状态不会跨后端进程持久化。
-- 代码执行使用本地子进程，不是生产级安全沙箱。
-- 目前没有自动化 CI 测试矩阵。
+- Git Bash 使用当前 Windows 用户权限，不是生产级安全沙箱。
+- 两轮指标来自离线故障注入基准，不是线上 LLM 生产流量。
+- 已有自动化回归脚本，但尚未配置 GitHub Actions CI 矩阵。
 - 桌面版暂未配置代码签名，Windows SmartScreen 可能显示“未知发布者”。
 
 ## Roadmap

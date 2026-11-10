@@ -21,3 +21,9 @@ def route_after_agent(state: AgentState) -> str:
         return "tools"
 
     return "save"
+
+
+def route_after_tools(state: AgentState) -> str:
+    if state.get("termination_reason") == "loop_detected":
+        return "limit"
+    return "agent"

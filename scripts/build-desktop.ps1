@@ -1,5 +1,5 @@
 param(
-    [string]$PackageName = "CodingAgent-Windows-x64"
+    [string]$PackageName = "CodingAgent-v1.2.0-Windows-x64"
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,12 +11,21 @@ $zipPath = Join-Path $distRoot "$PackageName.zip"
 $electronDist = Join-Path $projectRoot "node_modules\electron\dist"
 $venvConfig = Join-Path $projectRoot ".venv\pyvenv.cfg"
 $sitePackages = Join-Path $projectRoot ".venv\Lib\site-packages"
+$gitCommand = Get-Command git.exe -ErrorAction SilentlyContinue
+if (-not $gitCommand) {
+    throw "未找到 Git for Windows，无法打包内置 Git Bash。"
+}
+$gitRoot = Split-Path (Split-Path $gitCommand.Source -Parent) -Parent
+$gitBash = Join-Path $gitRoot "bin\bash.exe"
 
 if (-not (Test-Path -LiteralPath (Join-Path $electronDist "electron.exe"))) {
     throw "未找到 Electron 运行时，请先执行 npm install。"
 }
 if (-not (Test-Path -LiteralPath $venvConfig)) {
     throw "未找到 .venv\pyvenv.cfg。"
+}
+if (-not (Test-Path -LiteralPath $gitBash)) {
+    throw "未找到 Git Bash：$gitBash"
 }
 
 $homeLine = Get-Content -LiteralPath $venvConfig -Encoding utf8 |
@@ -41,7 +50,7 @@ if (Test-Path -LiteralPath $packageDir) {
 }
 New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 
-Write-Host "1/6 复制 Electron..."
+Write-Host "1/7 复制 Electron..."
 Copy-Item -Path (Join-Path $electronDist "*") -Destination $packageDir -Recurse -Force
 $electronExe = Join-Path $packageDir "electron.exe"
 $appExe = Join-Path $packageDir "Coding Agent.exe"
@@ -53,19 +62,21 @@ if (Test-Path -LiteralPath $defaultApp) {
     Remove-Item -LiteralPath $defaultApp -Force
 }
 
-Write-Host "2/6 复制 Electron 应用..."
+Write-Host "2/7 复制 Electron 应用..."
 $appDir = Join-Path $resourcesDir "app"
 New-Item -ItemType Directory -Force -Path $appDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot "package.json") -Destination $appDir
 Copy-Item -LiteralPath (Join-Path $projectRoot "electron") -Destination $appDir -Recurse
 
-Write-Host "3/6 复制 Python 后端..."
+Write-Host "3/7 复制 Python 后端..."
 $backendDir = Join-Path $resourcesDir "backend"
 $backendSourceDir = Join-Path $backendDir "src"
 New-Item -ItemType Directory -Force -Path $backendSourceDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot "src\app") -Destination $backendSourceDir -Recurse
+$backendEvalDir = Join-Path $backendDir "evals"
+Copy-Item -LiteralPath (Join-Path $projectRoot "evals") -Destination $backendEvalDir -Recurse
 
-Write-Host "4/6 复制内置 Python 与依赖..."
+Write-Host "4/7 复制内置 Python 与依赖..."
 $runtimeDir = Join-Path $resourcesDir "runtime"
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 Copy-Item -Path (Join-Path $basePython "*") -Destination $runtimeDir -Recurse -Force
@@ -76,9 +87,14 @@ Copy-Item -LiteralPath $sitePackages -Destination $runtimeSitePackages -Recurse
 Get-ChildItem -LiteralPath $runtimeSitePackages -File -Filter "*.pth" |
     Remove-Item -Force
 
-Write-Host "5/6 添加快捷方式和说明..."
+Write-Host "5/7 复制内置 Git Bash..."
+$gitRuntimeDir = Join-Path $resourcesDir "git-bash"
+Copy-Item -LiteralPath $gitRoot -Destination $gitRuntimeDir -Recurse -Force
+
+Write-Host "6/7 添加快捷方式和说明..."
 Copy-Item -LiteralPath (Join-Path $projectRoot "packaging\README.txt") -Destination $packageDir
 Copy-Item -LiteralPath (Join-Path $projectRoot "packaging\Install-Coding-Agent.ps1") -Destination $packageDir
+Copy-Item -LiteralPath (Join-Path $projectRoot "README.md") -Destination $packageDir
 
 Get-ChildItem -LiteralPath $packageDir -Directory -Recurse -Filter "__pycache__" |
     Sort-Object FullName -Descending |
@@ -90,7 +106,7 @@ if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
 }
 
-Write-Host "6/6 生成压缩包..."
+Write-Host "7/7 生成压缩包..."
 Compress-Archive -LiteralPath $packageDir -DestinationPath $zipPath -CompressionLevel Optimal
 
 Write-Host ""
